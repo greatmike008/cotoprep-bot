@@ -6,11 +6,15 @@ const quizData = require('./questions');
 const express = require('express');
 const bodyParser = require('body-parser');
 const { FedaPay, Transaction } = require('fedapay');
-const qrcode = require('qrcode-terminal');
-const axios = require('axios'); // For the keep-alive ping
+const qrcodeTerminal = require('qrcode-terminal');
+const QRCode = require('qrcode'); // For the Web-based QR
+const axios = require('axios');
 
 const app = express();
 app.use(bodyParser.json());
+
+// This will hold the QR image for the browser
+app.qrCodeImage = null;
 
 // --- 1. DATABASE CONNECTION ---
 const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
@@ -48,7 +52,6 @@ function initializeBot() {
         }),
         puppeteer: {
             handleSIGINT: false,
-            // Removed executablePath to let Puppeteer use the downloaded Chrome
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -62,26 +65,20 @@ function initializeBot() {
     });
 
     client.on('qr', async (qr) => {
-        // 1. BACKUP QR CODE
-        console.log('--- QR CODE BACKUP (Zoom out browser to 40% to scan) ---');
-        qrcode.generate(qr, { small: false });
+        // 1. Generate the Web QR Image
+        app.qrCodeImage = await QRCode.toDataURL(qr);
         
-        // 2. PAIRING CODE (6s delay to prevent window error)
-        console.log('--- Waiting for Pairing System (6s)... ---');
-        setTimeout(async () => {
-            try {
-                const pairingCode = await client.requestPairingCode('22943067098'); 
-                console.log('--------------------------------------------');
-                console.log('🔗 YOUR WHATSAPP LINK CODE:');
-                console.log('👉 ' + pairingCode + ' 👈');
-                console.log('--------------------------------------------');
-            } catch (err) {
-                console.error('Pairing Error (Scan the QR above instead):', err);
-            }
-        }, 6000);
+        console.log('--------------------------------------------');
+        console.log('✨ NEW QR CODE GENERATED ✨');
+        console.log('👉 SCAN HERE: https://cotoprep-bot.onrender.com/scan');
+        console.log('--------------------------------------------');
+
+        // Backup in terminal just in case
+        qrcodeTerminal.generate(qr, { small: true });
     });
 
     client.on('ready', () => {
+        app.qrCodeImage = null; // Clear QR when connected
         console.log('🚀 CotoPrep Bot is LIVE and Ready!');
     });
     
@@ -156,8 +153,28 @@ function initializeBot() {
     client.initialize();
 }
 
-// --- 4. EXPRESS SERVER & WEBHOOK ---
+// --- 4. EXPRESS ROUTES ---
 app.get('/', (req, res) => res.send('Bot is Running'));
+
+// The Special Scan Page
+app.get('/scan', (req, res) => {
+    if (app.qrCodeImage) {
+        res.send(`
+            <html>
+                <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#121b22;color:white;font-family:sans-serif;">
+                    <div style="background:white;padding:30px;border-radius:20px;">
+                        <img src="${app.qrCodeImage}" style="width:300px;height:300px;"/>
+                    </div>
+                    <h2 style="margin-top:20px;">Scannez avec WhatsApp</h2>
+                    <p>Une fois scanné, le bot démarrera automatiquement.</p>
+                </body>
+            </html>
+        `);
+    } else {
+        res.send('<h1>Le QR code est en cours de génération... Actualisez dans 10 secondes.</h1>');
+    }
+});
+
 app.post('/webhook', async (req, res) => {
     const data = req.body.entity || req.body;
     if (data.status === 'approved') {
@@ -177,7 +194,7 @@ setInterval(() => {
     axios.get('https://cotoprep-bot.onrender.com/')
         .then(() => console.log('👋 Self-ping: Staying awake!'))
         .catch(err => console.error('Ping Error:', err.message));
-}, 600000); // 10 minutes
+}, 600000); 
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
