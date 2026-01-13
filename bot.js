@@ -11,18 +11,18 @@ const app = express();
 app.use(bodyParser.json());
 
 // --- 1. DATABASE CONNECTION ---
-// We define the connection first
-mongoose.connect('mongodb+srv://mastergee_db:Mikky@1044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB')
+// Using your direct string to avoid any Env Variable confusion
+const mongoURI = "mongodb+srv://mastergee_db:Mikky@1044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
+
+mongoose.connect(mongoURI)
     .then(async () => {
         console.log('✅ Connected to MongoDB Atlas');
-        initializeBot(); // Only start the bot once DB is ready
+        initializeBot(); 
     })
     .catch(err => {
-        console.error('❌ MongoDB Connection Error. Check your MONGODB_URI in Render settings!');
-        console.error(err);
+        console.error('❌ MongoDB Connection Error:', err);
     });
 
-// Define User Schema
 const userSchema = new mongoose.Schema({
     userId: { type: String, unique: true },
     name: String,
@@ -31,13 +31,11 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// --- 2. FEDAPAY SETUP ---
 FedaPay.setApiKey(process.env.FEDAPAY_SECRET_KEY);
 FedaPay.setEnvironment('sandbox');
 
 let userSessions = {}; 
 
-// --- 3. BOT INITIALIZATION FUNCTION ---
 function initializeBot() {
     const store = new MongoStore({ mongoose: mongoose });
 
@@ -48,30 +46,32 @@ function initializeBot() {
         }),
         puppeteer: {
             handleSIGINT: false,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         }
     });
 
+    // This handles the link code generation
     client.on('qr', async (qr) => {
         try {
-            // REPLACE WITH YOUR NUMBER (ex: 22964000000)
+            // Your number is now hardcoded correctly
             const pairingCode = await client.requestPairingCode('22943067098'); 
             console.log('--------------------------------------------');
-            console.log('🔗 VOTRE CODE DE COUPLAGE WHATSAPP :');
-            console.log(pairingCode);
+            console.log('🔗 YOUR WHATSAPP LINK CODE:');
+            console.log('👉 ' + pairingCode + ' 👈');
             console.log('--------------------------------------------');
         } catch (err) {
-            console.error('Erreur Pairing Code:', err);
+            console.error('Pairing Error:', err);
         }
     });
 
-    client.on('ready', () => console.log('🚀 CotoPrep Bot is LIVE!'));
+    client.on('ready', () => {
+        console.log('🚀 CotoPrep Bot is LIVE and Ready!');
+    });
     
     client.on('remote_session_saved', () => {
-        console.log('✅ Session sauvegardée dans MongoDB !');
+        console.log('✅ Session saved to Cloud (MongoDB)!');
     });
 
-    // --- 4. MESSAGE HANDLING ---
     client.on('message', async (msg) => {
         const userId = msg.from;
         const text = msg.body.toUpperCase().trim();
@@ -81,7 +81,7 @@ function initializeBot() {
         if (text === 'CLASSEMENT') {
             const topUsers = await User.find().sort({ total: -1 }).limit(5);
             let resp = "🏆 *TOP 5 GÉNIES* 🏆\n\n";
-            topUsers.forEach((u, i) => { resp += `${i+1}. ${u.name || "Pro"} - ${u.total}pts\n`; });
+            topUsers.forEach((u, i) => { resp += `${i+1}. ${u.name || "Étudiant"} - ${u.total}pts\n`; });
             return msg.reply(resp);
         }
 
@@ -120,7 +120,7 @@ function initializeBot() {
             if (['A', 'B', 'C'].includes(text)) {
                 if (text === currentQ.answer) { session.score++; }
                 session.currentQuestion++;
-                if (session.currentQuestion < 25) {
+                if (session.currentQuestion < session.questions.length) {
                     const nextQ = session.questions[session.currentQuestion];
                     await msg.reply(`*Q${session.currentQuestion+1}:* ${nextQ.question}\n\n${nextQ.options.join('\n')}`);
                 } else {
@@ -128,7 +128,7 @@ function initializeBot() {
                     if (!dbUser) dbUser = new User({ userId, name: contact.pushname || "Étudiant" });
                     dbUser.total += session.score;
                     await dbUser.save();
-                    await msg.reply(`Fini ! Score: ${session.score}/25. Tes points sont sauvés.`);
+                    await msg.reply(`Fini ! Score: ${session.score}/${session.questions.length}. Tes points sont sauvés.`);
                     delete userSessions[userId];
                 }
             }
@@ -138,21 +138,20 @@ function initializeBot() {
     client.initialize();
 }
 
-// --- 5. SERVER ---
-app.get('/', (req, res) => res.send('Bot Active'));
+app.get('/', (req, res) => res.send('Bot is Running'));
 app.post('/webhook', async (req, res) => {
     const data = req.body.entity || req.body;
     if (data.status === 'approved') {
         const phone = data.custom_metadata?.phone;
         if (phone) {
             userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
-            await client.sendMessage(phone, "Paiement Reçu ! 🎯 Choisis ta matière (1-9).");
+            try {
+                await client.sendMessage(phone, "Paiement Reçu ! 🎯 Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
+            } catch (err) { console.error('Webhook Send Error:', err); }
         }
     }
     res.sendStatus(200);
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`📡 Server port ${PORT}`));
-
-
+app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
