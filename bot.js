@@ -55,7 +55,7 @@ function initializeBot() {
     client.on('qr', async (qr) => {
         try {
             // REPLACE WITH YOUR NUMBER (ex: 22964000000)
-            const pairingCode = await client.requestPairingCode('229XXXXXXXX'); 
+            const pairingCode = await client.requestPairingCode('22943067098'); 
             console.log('--------------------------------------------');
             console.log('🔗 VOTRE CODE DE COUPLAGE WHATSAPP :');
             console.log(pairingCode);
@@ -154,3 +154,4 @@ app.post('/webhook', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`📡 Server port ${PORT}`));
+
