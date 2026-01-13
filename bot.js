@@ -12,7 +12,7 @@ app.use(bodyParser.json());
 
 // --- 1. DATABASE CONNECTION ---
 // We define the connection first
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect('mongodb+srv://mastergee_db:Mikky@1044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB')
     .then(async () => {
         console.log('✅ Connected to MongoDB Atlas');
         initializeBot(); // Only start the bot once DB is ready
@@ -154,4 +154,5 @@ app.post('/webhook', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`📡 Server port ${PORT}`));
+
 
