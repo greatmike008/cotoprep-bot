@@ -6,12 +6,12 @@ const quizData = require('./questions');
 const express = require('express');
 const bodyParser = require('body-parser');
 const { FedaPay, Transaction } = require('fedapay');
+const qrcode = require('qrcode-terminal'); // Added for the backup QR
 
 const app = express();
 app.use(bodyParser.json());
 
 // --- 1. DATABASE CONNECTION ---
-// Using your direct string to avoid any Env Variable confusion
 const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
 
 mongoose.connect(mongoURI)
@@ -46,16 +46,26 @@ function initializeBot() {
         }),
         puppeteer: {
             handleSIGINT: false,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            executablePath: '/usr/bin/google-chrome-stable', // Tell Render where Chrome is
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process' // Helps with Render's low memory
+            ]
         }
     });
 
-    // This handles the link code generation
-  // This handles the link code generation with a small delay
     client.on('qr', async (qr) => {
-        console.log('--- QR Received. Waiting 5 seconds for Pairing System... ---');
+        // 1. BACKUP QR CODE (In case pairing fails)
+        console.log('--- QR CODE BACKUP (Zoom out to scan) ---');
+        qrcode.generate(qr, { small: false });
         
-        // Add this timeout to prevent the "window.onCodeReceivedEvent" error
+        // 2. PAIRING CODE (With 6 second delay to be safe)
+        console.log('--- Waiting for Pairing System (6s)... ---');
         setTimeout(async () => {
             try {
                 const pairingCode = await client.requestPairingCode('22943067098'); 
@@ -64,9 +74,9 @@ function initializeBot() {
                 console.log('👉 ' + pairingCode + ' 👈');
                 console.log('--------------------------------------------');
             } catch (err) {
-                console.error('Pairing Error:', err);
+                console.error('Pairing Error (Use the QR code above instead):', err);
             }
-        }, 5000); // 5 second delay
+        }, 6000);
     });
 
     client.on('ready', () => {
@@ -77,6 +87,7 @@ function initializeBot() {
         console.log('✅ Session saved to Cloud (MongoDB)!');
     });
 
+    // --- MESSAGE HANDLING ---
     client.on('message', async (msg) => {
         const userId = msg.from;
         const text = msg.body.toUpperCase().trim();
@@ -159,6 +170,4 @@ app.post('/webhook', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
-
