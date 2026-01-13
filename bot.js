@@ -46,7 +46,7 @@ const client = new Client({
 client.on('qr', async (qr) => {
     // IMPORTANT: REPLACE THE NUMBER BELOW WITH YOUR ACTUAL BUSINESS NUMBER
     try {
-        const pairingCode = await client.requestPairingCode('229XXXXXXXX'); 
+        const pairingCode = await client.requestPairingCode('22943067098'); 
         console.log('--------------------------------------------');
         console.log('🔗 VOTRE CODE DE COUPLAGE WHATSAPP :');
         console.log(pairingCode);
