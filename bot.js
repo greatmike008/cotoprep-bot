@@ -51,17 +51,22 @@ function initializeBot() {
     });
 
     // This handles the link code generation
+  // This handles the link code generation with a small delay
     client.on('qr', async (qr) => {
-        try {
-            // Your number is now hardcoded correctly
-            const pairingCode = await client.requestPairingCode('22943067098'); 
-            console.log('--------------------------------------------');
-            console.log('🔗 YOUR WHATSAPP LINK CODE:');
-            console.log('👉 ' + pairingCode + ' 👈');
-            console.log('--------------------------------------------');
-        } catch (err) {
-            console.error('Pairing Error:', err);
-        }
+        console.log('--- QR Received. Waiting 5 seconds for Pairing System... ---');
+        
+        // Add this timeout to prevent the "window.onCodeReceivedEvent" error
+        setTimeout(async () => {
+            try {
+                const pairingCode = await client.requestPairingCode('22943067098'); 
+                console.log('--------------------------------------------');
+                console.log('🔗 YOUR WHATSAPP LINK CODE:');
+                console.log('👉 ' + pairingCode + ' 👈');
+                console.log('--------------------------------------------');
+            } catch (err) {
+                console.error('Pairing Error:', err);
+            }
+        }, 5000); // 5 second delay
     });
 
     client.on('ready', () => {
@@ -156,3 +161,4 @@ app.post('/webhook', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
