@@ -6,7 +6,8 @@ const quizData = require('./questions');
 const express = require('express');
 const bodyParser = require('body-parser');
 const { FedaPay, Transaction } = require('fedapay');
-const qrcode = require('qrcode-terminal'); // Added for the backup QR
+const qrcode = require('qrcode-terminal');
+const axios = require('axios'); // For the keep-alive ping
 
 const app = express();
 app.use(bodyParser.json());
@@ -36,6 +37,7 @@ FedaPay.setEnvironment('sandbox');
 
 let userSessions = {}; 
 
+// --- 2. BOT INITIALIZATION ---
 function initializeBot() {
     const store = new MongoStore({ mongoose: mongoose });
 
@@ -46,7 +48,7 @@ function initializeBot() {
         }),
         puppeteer: {
             handleSIGINT: false,
-            executablePath: '/usr/bin/google-chrome-stable', // Tell Render where Chrome is
+            // Removed executablePath to let Puppeteer use the downloaded Chrome
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -54,17 +56,17 @@ function initializeBot() {
                 '--disable-gpu',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process' // Helps with Render's low memory
+                '--single-process'
             ]
         }
     });
 
     client.on('qr', async (qr) => {
-        // 1. BACKUP QR CODE (In case pairing fails)
-        console.log('--- QR CODE BACKUP (Zoom out to scan) ---');
+        // 1. BACKUP QR CODE
+        console.log('--- QR CODE BACKUP (Zoom out browser to 40% to scan) ---');
         qrcode.generate(qr, { small: false });
         
-        // 2. PAIRING CODE (With 6 second delay to be safe)
+        // 2. PAIRING CODE (6s delay to prevent window error)
         console.log('--- Waiting for Pairing System (6s)... ---');
         setTimeout(async () => {
             try {
@@ -74,7 +76,7 @@ function initializeBot() {
                 console.log('👉 ' + pairingCode + ' 👈');
                 console.log('--------------------------------------------');
             } catch (err) {
-                console.error('Pairing Error (Use the QR code above instead):', err);
+                console.error('Pairing Error (Scan the QR above instead):', err);
             }
         }, 6000);
     });
@@ -87,7 +89,7 @@ function initializeBot() {
         console.log('✅ Session saved to Cloud (MongoDB)!');
     });
 
-    // --- MESSAGE HANDLING ---
+    // --- 3. MESSAGE HANDLING ---
     client.on('message', async (msg) => {
         const userId = msg.from;
         const text = msg.body.toUpperCase().trim();
@@ -154,6 +156,7 @@ function initializeBot() {
     client.initialize();
 }
 
+// --- 4. EXPRESS SERVER & WEBHOOK ---
 app.get('/', (req, res) => res.send('Bot is Running'));
 app.post('/webhook', async (req, res) => {
     const data = req.body.entity || req.body;
@@ -169,5 +172,12 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200);
 });
 
-const PORT = process.env.PORT || 3000;
+// --- 5. KEEP-ALIVE PING ---
+setInterval(() => {
+    axios.get('https://cotoprep-bot.onrender.com/')
+        .then(() => console.log('👋 Self-ping: Staying awake!'))
+        .catch(err => console.error('Ping Error:', err.message));
+}, 600000); // 10 minutes
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
