@@ -12,7 +12,7 @@ app.use(bodyParser.json());
 
 // --- 1. DATABASE CONNECTION ---
 // Using your direct string to avoid any Env Variable confusion
-const mongoURI = "mongodb+srv://mastergee_db:Mikky@1044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
+const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
 
 mongoose.connect(mongoURI)
     .then(async () => {
@@ -154,4 +154,5 @@ app.post('/webhook', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
