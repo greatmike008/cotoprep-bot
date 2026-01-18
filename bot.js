@@ -59,8 +59,12 @@ function initializeBot() {
                 '--disable-gpu',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process'
-            ]
+                '--single-process', // CRITICAL for Render
+                '--disable-extensions'
+            ],
+            // Add this line to give it more time to launch
+            browserWSEndpoint: null, 
+            executablePath: process.env.CHROME_PATH || null,
         }
     });
 
@@ -198,3 +202,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
