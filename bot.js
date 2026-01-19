@@ -44,13 +44,15 @@ let userSessions = {};
 // --- 2. BOT INITIALIZATION ---
 function initializeBot() {
     const store = new MongoStore({ mongoose: mongoose });
-
-   const client = new Client({
+const client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
             backupSyncIntervalMs: 300000
         }),
-        // This stops the "QR Loop" by using a stable WhatsApp version
+        // FIX 1: Increase timeouts so Render has time to breathe
+        authTimeoutMs: 120000, // 2 minutes instead of 45s
+        qrMaxRetries: 10,
+        // FIX 2: Use a fixed web version to stop the "version check" crash
         webVersionCache: { 
             type: 'remote', 
             remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
@@ -63,12 +65,10 @@ function initializeBot() {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--no-first-run',
                 '--no-zygote',
                 '--single-process',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            ],
-            executablePath: null
+            ]
         }
     });
 
@@ -206,6 +206,7 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
 
 
