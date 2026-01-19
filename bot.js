@@ -50,8 +50,9 @@ function initializeBot() {
             store: store,
             backupSyncIntervalMs: 300000
         }),
-        puppeteer: {
+       puppeteer: {
             handleSIGINT: false,
+            // Keep the Render-friendly flags you had
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -59,12 +60,14 @@ function initializeBot() {
                 '--disable-gpu',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process', // CRITICAL for Render
-                '--disable-extensions'
+                '--single-process',
+                '--disable-extensions',
+                // ADD THIS LINE - It is the "Human" disguise
+                '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             ],
-            // Add this line to give it more time to launch
-            browserWSEndpoint: null, 
-            executablePath: process.env.CHROME_PATH || null,
+            browserWSEndpoint: null,
+            // Keep this null so it uses the chrome we installed in the build step
+            executablePath: null 
         }
     });
 
@@ -202,4 +205,5 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
