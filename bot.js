@@ -45,14 +45,19 @@ let userSessions = {};
 function initializeBot() {
     const store = new MongoStore({ mongoose: mongoose });
 
-    const client = new Client({
+   const client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
             backupSyncIntervalMs: 300000
         }),
-       puppeteer: {
+        // This stops the "QR Loop" by using a stable WhatsApp version
+        webVersionCache: { 
+            type: 'remote', 
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
+        },
+        puppeteer: {
             handleSIGINT: false,
-            // Keep the Render-friendly flags you had
+            headless: 'new',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -61,13 +66,9 @@ function initializeBot() {
                 '--no-first-run',
                 '--no-zygote',
                 '--single-process',
-                '--disable-extensions',
-                // ADD THIS LINE - It is the "Human" disguise
-                '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             ],
-            browserWSEndpoint: null,
-            // Keep this null so it uses the chrome we installed in the build step
-            executablePath: null 
+            executablePath: null
         }
     });
 
@@ -205,5 +206,6 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
 
