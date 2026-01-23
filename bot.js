@@ -49,10 +49,8 @@ const client = new Client({
             store: store,
             backupSyncIntervalMs: 300000
         }),
-        // FIX 1: Increase timeouts so Render has time to breathe
-        authTimeoutMs: 120000, // 2 minutes instead of 45s
+        authTimeoutMs: 0, // This stops it from timing out while you're scanning
         qrMaxRetries: 10,
-        // FIX 2: Use a fixed web version to stop the "version check" crash
         webVersionCache: { 
             type: 'remote', 
             remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
@@ -206,6 +204,7 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
 
 
