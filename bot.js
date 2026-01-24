@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js'); // CHANGED: Use LocalAuth instead
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const mongoose = require('mongoose');
 const quizData = require('./questions');
 const express = require('express');
@@ -8,8 +8,6 @@ const { FedaPay, Transaction } = require('fedapay');
 const qrcodeTerminal = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 
 const app = express();
 app.use(bodyParser.json());
@@ -41,17 +39,13 @@ FedaPay.setEnvironment('sandbox');
 
 let userSessions = {}; 
 
-// --- 2. OPTIMIZED BOT INITIALIZATION ---
+// --- 2. BOT INITIALIZATION ---
 function initializeBot() {
-    // Create session directory if it doesn't exist
-    const SESSION_DIR = path.join(__dirname, '.wwebjs_auth');
-    if (!fs.existsSync(SESSION_DIR)) {
-        fs.mkdirSync(SESSION_DIR, { recursive: true });
-    }
-
+    console.log('🔄 Initializing WhatsApp client...');
+    
     const client = new Client({
         authStrategy: new LocalAuth({
-            dataPath: SESSION_DIR
+            clientId: 'cotoprep-main'
         }),
         puppeteer: {
             headless: true,
@@ -64,60 +58,37 @@ function initializeBot() {
                 '--no-zygote',
                 '--disable-gpu',
                 '--disable-software-rasterizer',
-                '--disable-dev-tools',
-                '--disable-extensions',
-                '--disable-background-networking',
-                '--disable-sync',
-                '--metrics-recording-only',
-                '--mute-audio',
-                '--hide-scrollbars',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--blink-settings=imagesEnabled=false' // Disable images for faster load
-            ],
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
-        },
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process'
+            ]
         }
     });
 
-    // --- EVENT HANDLERS ---
-    let initializationTimeout;
+    let initTimeout;
 
     client.on('loading_screen', (percent, message) => {
         console.log(`⏳ Loading: ${percent}% - ${message}`);
         
-        // Clear any existing timeout
-        if (initializationTimeout) clearTimeout(initializationTimeout);
-        
-        // Set a 2-minute timeout for initialization
-        initializationTimeout = setTimeout(() => {
-            console.log('⚠️ Initialization taking too long, restarting...');
-            client.destroy().then(() => {
-                console.log('🔄 Restarting bot...');
-                setTimeout(() => initializeBot(), 5000);
-            });
-        }, 120000); // 2 minutes
+        clearTimeout(initTimeout);
+        initTimeout = setTimeout(() => {
+            console.log('⚠️ Initialization timeout - restarting...');
+            client.destroy().then(() => setTimeout(() => initializeBot(), 5000));
+        }, 180000); // 3 minutes max
     });
 
     client.on('authenticated', () => {
-        console.log('✅ AUTHENTICATED - Session is valid!');
+        console.log('✅ AUTHENTICATED');
+        clearTimeout(initTimeout);
     });
 
     client.on('auth_failure', msg => {
-        console.error('❌ AUTHENTICATION FAILED:', msg);
-        // Clear session and restart
-        if (fs.existsSync(SESSION_DIR)) {
-            fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-        }
-        setTimeout(() => initializeBot(), 5000);
+        console.error('❌ AUTH FAILED:', msg);
+        clearTimeout(initTimeout);
     });
 
     client.on('disconnected', (reason) => {
-        console.log('⚠️ Client disconnected:', reason);
-        clearTimeout(initializationTimeout);
-        // Auto-reconnect after 10 seconds
+        console.log('⚠️ Disconnected:', reason);
+        clearTimeout(initTimeout);
         setTimeout(() => {
             console.log('🔄 Reconnecting...');
             client.initialize();
@@ -125,43 +96,38 @@ function initializeBot() {
     });
 
     client.on('qr', async (qr) => {
-        clearTimeout(initializationTimeout); // Clear timeout when QR is generated
-        
+        clearTimeout(initTimeout);
         app.qrCodeImage = await QRCode.toDataURL(qr);
         
-        console.log('--------------------------------------------');
-        console.log('✨ NEW QR CODE GENERATED ✨');
-        console.log('👉 SCAN HERE: https://cotoprep-bot.onrender.com/scan');
-        console.log('--------------------------------------------');
-
-        qrcodeTerminal.generate(qr, { small: true });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('✨ QR CODE READY ✨');
+        console.log('👉 https://cotoprep-bot.onrender.com/scan');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         
-        // Set 60-second timeout for QR scanning
-        setTimeout(() => {
-            if (app.qrCodeImage) {
-                console.log('⏰ QR Code expired, generating new one...');
-            }
-        }, 60000);
+        qrcodeTerminal.generate(qr, { small: true });
     });
 
     client.on('ready', () => {
-        clearTimeout(initializationTimeout); // Clear timeout on success
+        clearTimeout(initTimeout);
         app.qrCodeImage = null;
-        console.log('🚀 CotoPrep Bot is LIVE and Ready!');
-        console.log('📱 Phone Number:', client.info.wid.user);
-        console.log('📲 WhatsApp Name:', client.info.pushname);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🚀 BOT IS LIVE AND READY!');
+        console.log('📱 Number:', client.info.wid.user);
+        console.log('👤 Name:', client.info.pushname);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
 
-    // --- 3. MESSAGE HANDLING ---
+    // --- MESSAGE HANDLING ---
     client.on('message', async (msg) => {
         try {
-            console.log(`📩 NEW MESSAGE from ${msg.from}: "${msg.body}"`);
+            console.log(`📩 [${new Date().toLocaleTimeString()}] ${msg.from}: "${msg.body}"`);
             
             const userId = msg.from;
             const text = msg.body.toUpperCase().trim();
 
             let dbUser = await User.findOne({ userId });
 
+            // CLASSEMENT Command
             if (text === 'CLASSEMENT') {
                 const topUsers = await User.find().sort({ total: -1 }).limit(5);
                 let resp = "🏆 *TOP 5 GÉNIES* 🏆\n\n";
@@ -171,9 +137,11 @@ function initializeBot() {
                 return msg.reply(resp);
             }
 
+            // QUIZ Command
             if (text === 'QUIZ') {
-                console.log('🎯 QUIZ command received from:', userId);
-                await msg.reply('Génération du lien de paiement (500 CFA)...');
+                console.log('🎯 QUIZ triggered by:', userId);
+                await msg.reply('⏳ Génération du lien de paiement (500 CFA)...');
+                
                 try {
                     const transaction = await Transaction.create({
                         description: 'Accès Quiz CotoPrep',
@@ -182,15 +150,16 @@ function initializeBot() {
                         custom_metadata: { phone: userId } 
                     });
                     const token = await transaction.generateToken();
-                    await msg.reply(`💳 Paye ici pour commencer : ${token.url}`);
-                    console.log('✅ Payment link sent successfully');
+                    await msg.reply(`💳 *Paye ici pour commencer:*\n${token.url}`);
+                    console.log('✅ Payment link sent');
                 } catch (e) { 
-                    console.error('❌ FedaPay Error:', e); 
-                    await msg.reply('❌ Erreur lors de la génération du paiement. Réessaye plus tard.');
+                    console.error('❌ FedaPay Error:', e.message); 
+                    await msg.reply('❌ Erreur paiement. Réessaye.');
                 }
                 return;
             }
 
+            // Quiz Session Handling
             if (userSessions[userId]) {
                 let session = userSessions[userId];
                 
@@ -199,6 +168,7 @@ function initializeBot() {
                     return msg.reply("❌ Quiz annulé."); 
                 }
 
+                // Subject Selection
                 if (!session.subject) {
                     const subjects = ['MATHS', 'SVT', 'PCT', 'PHILO', 'FRANCAIS', 'HIST-GEO', 'ANGLAIS', 'ESPAGNOL', 'ALLEMAND'];
                     const choice = parseInt(text) - 1;
@@ -209,22 +179,28 @@ function initializeBot() {
                             .sort(() => Math.random() - 0.5)
                             .slice(0, 25);
                         const q = session.questions[0];
-                        await msg.reply(`*Q1:* ${q.question}\n\n${q.options.join('\n')}`);
+                        await msg.reply(`*Q1/${session.questions.length}*\n\n${q.question}\n\n${q.options.join('\n')}\n\n_Tape A, B ou C_`);
+                        console.log(`📚 Subject selected: ${session.subject}`);
                     } else { 
-                        return msg.reply("❌ Tape 1-9."); 
+                        return msg.reply("❌ Choix invalide. Tape 1-9."); 
                     }
                     return;
                 }
 
+                // Answer Handling
                 const currentQ = session.questions[session.currentQuestion];
                 if (['A', 'B', 'C'].includes(text)) {
-                    if (text === currentQ.answer) { session.score++; }
+                    const isCorrect = text === currentQ.answer;
+                    if (isCorrect) session.score++;
+                    
                     session.currentQuestion++;
                     
                     if (session.currentQuestion < session.questions.length) {
                         const nextQ = session.questions[session.currentQuestion];
-                        await msg.reply(`*Q${session.currentQuestion+1}:* ${nextQ.question}\n\n${nextQ.options.join('\n')}`);
+                        const progress = `${session.currentQuestion + 1}/${session.questions.length}`;
+                        await msg.reply(`${isCorrect ? '✅' : '❌'}\n\n*Q${progress}*\n\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
                     } else {
+                        // Quiz Complete
                         const contact = await msg.getContact();
                         if (!dbUser) {
                             dbUser = new User({ 
@@ -234,35 +210,83 @@ function initializeBot() {
                         }
                         dbUser.total += session.score;
                         await dbUser.save();
-                        await msg.reply(`✅ Fini ! Score: ${session.score}/${session.questions.length}\n🏆 Tes points sont sauvés.`);
+                        
+                        const percentage = Math.round((session.score / session.questions.length) * 100);
+                        await msg.reply(
+                            `🎉 *QUIZ TERMINÉ!*\n\n` +
+                            `Score: ${session.score}/${session.questions.length} (${percentage}%)\n` +
+                            `🏆 Total Points: ${dbUser.total}\n\n` +
+                            `Tape *CLASSEMENT* pour voir le top 5!`
+                        );
+                        
+                        console.log(`✅ Quiz completed - Score: ${session.score}/${session.questions.length}`);
                         delete userSessions[userId];
                     }
                 }
             }
         } catch (error) {
-            console.error('❌ Error handling message:', error);
+            console.error('❌ Message Error:', error);
+            msg.reply('❌ Erreur. Réessaye ou tape ANNULER.');
         }
     });
 
-    // Initialize the client
-    console.log('🔄 Initializing WhatsApp client...');
     client.initialize();
-    
-    // Make client available globally for webhook
     global.whatsappClient = client;
 }
 
-// --- 4. EXPRESS ROUTES ---
+// --- EXPRESS ROUTES ---
 app.get('/', (req, res) => {
     res.send(`
+        <!DOCTYPE html>
         <html>
-        <head><title>CotoPrep Bot</title></head>
-        <body style="font-family:sans-serif;text-align:center;padding:50px;">
-            <h1>🤖 CotoPrep Bot is Running!</h1>
-            <p>Status: <strong style="color:green;">Active</strong></p>
-            <a href="/scan" style="background:#25D366;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;display:inline-block;margin-top:20px;">
-                📱 Scan QR Code
-            </a>
+        <head>
+            <title>CotoPrep Bot</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body {
+                    font-family: 'Segoe UI', Tahoma, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    text-align: center;
+                    padding: 50px 20px;
+                    margin: 0;
+                }
+                .container {
+                    max-width: 500px;
+                    margin: 0 auto;
+                    background: rgba(255,255,255,0.1);
+                    padding: 40px;
+                    border-radius: 20px;
+                    backdrop-filter: blur(10px);
+                }
+                h1 { font-size: 2.5em; margin: 0; }
+                .status { 
+                    color: #4ade80; 
+                    font-weight: bold; 
+                    font-size: 1.2em;
+                    margin: 20px 0;
+                }
+                .btn {
+                    display: inline-block;
+                    background: #25D366;
+                    color: white;
+                    padding: 15px 40px;
+                    text-decoration: none;
+                    border-radius: 50px;
+                    font-size: 1.1em;
+                    margin-top: 30px;
+                    transition: transform 0.2s;
+                }
+                .btn:hover { transform: scale(1.05); }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 CotoPrep Bot</h1>
+                <p class="status">✅ ONLINE</p>
+                <p>Bot de quiz pour préparation aux examens</p>
+                <a href="/scan" class="btn">📱 Scanner QR Code</a>
+            </div>
         </body>
         </html>
     `);
@@ -271,33 +295,72 @@ app.get('/', (req, res) => {
 app.get('/scan', (req, res) => {
     if (app.qrCodeImage) {
         res.send(`
+            <!DOCTYPE html>
             <html>
-                <head>
-                    <title>Scan QR Code - CotoPrep</title>
-                    <meta http-equiv="refresh" content="30">
-                </head>
-                <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#121b22;color:white;font-family:sans-serif;">
-                    <div style="background:white;padding:30px;border-radius:20px;">
-                        <img src="${app.qrCodeImage}" style="width:300px;height:300px;"/>
-                    </div>
-                    <h2 style="margin-top:20px;">📱 Scannez avec WhatsApp</h2>
-                    <p>Une fois scanné, le bot démarrera automatiquement.</p>
-                    <p style="font-size:12px;color:#888;">Cette page se rafraîchit automatiquement...</p>
-                </body>
+            <head>
+                <title>Scan QR - CotoPrep</title>
+                <meta http-equiv="refresh" content="30">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body {
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 100vh;
+                        background: #0b141a;
+                        color: white;
+                        font-family: sans-serif;
+                        margin: 0;
+                        padding: 20px;
+                    }
+                    .qr-container {
+                        background: white;
+                        padding: 30px;
+                        border-radius: 20px;
+                        box-shadow: 0 10px 50px rgba(0,0,0,0.5);
+                    }
+                    img { width: 300px; height: 300px; display: block; }
+                    h2 { margin: 20px 0 10px; }
+                    .refresh { font-size: 12px; color: #888; margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="qr-container">
+                    <img src="${app.qrCodeImage}" alt="QR Code"/>
+                </div>
+                <h2>📱 Scannez avec WhatsApp</h2>
+                <p>Ouvrez WhatsApp → Appareils connectés → Scanner</p>
+                <p class="refresh">⏱️ Auto-refresh dans 30s...</p>
+            </body>
             </html>
         `);
     } else {
         res.send(`
+            <!DOCTYPE html>
             <html>
-                <head>
-                    <title>QR Code - CotoPrep</title>
-                    <meta http-equiv="refresh" content="5">
-                </head>
-                <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;background:#121b22;color:white;font-family:sans-serif;">
-                    <h1>⏳ Le bot est connecté!</h1>
-                    <p>Pas besoin de scanner à nouveau.</p>
-                    <a href="/" style="color:#25D366;margin-top:20px;">Retour à l'accueil</a>
-                </body>
+            <head>
+                <title>CotoPrep Bot</title>
+                <meta http-equiv="refresh" content="5">
+                <style>
+                    body {
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 100vh;
+                        background: #0b141a;
+                        color: white;
+                        font-family: sans-serif;
+                    }
+                    h1 { color: #25D366; }
+                </style>
+            </head>
+            <body>
+                <h1>✅ Bot Connecté!</h1>
+                <p>Pas besoin de rescanner.</p>
+                <a href="/" style="color: #25D366; margin-top: 20px;">← Retour</a>
+            </body>
             </html>
         `);
     }
@@ -306,7 +369,7 @@ app.get('/scan', (req, res) => {
 app.post('/webhook', async (req, res) => {
     try {
         const data = req.body.entity || req.body;
-        console.log('📥 Webhook received:', JSON.stringify(data, null, 2));
+        console.log('📥 Webhook:', JSON.stringify(data, null, 2));
         
         if (data.status === 'approved') {
             const phone = data.custom_metadata?.phone;
@@ -319,9 +382,14 @@ app.post('/webhook', async (req, res) => {
                 
                 await global.whatsappClient.sendMessage(
                     phone, 
-                    "✅ Paiement Reçu ! 🎯\n\nChoisis ta matière (1-9):\n1️⃣ MATHS\n2️⃣ SVT\n3️⃣ PCT\n4️⃣ PHILO\n5️⃣ FRANCAIS\n6️⃣ HIST-GEO\n7️⃣ ANGLAIS\n8️⃣ ESPAGNOL\n9️⃣ ALLEMAND"
+                    "✅ *Paiement Confirmé!* 🎯\n\n" +
+                    "Choisis ta matière:\n" +
+                    "1️⃣ MATHS\n2️⃣ SVT\n3️⃣ PCT\n4️⃣ PHILO\n" +
+                    "5️⃣ FRANCAIS\n6️⃣ HIST-GEO\n7️⃣ ANGLAIS\n" +
+                    "8️⃣ ESPAGNOL\n9️⃣ ALLEMAND\n\n" +
+                    "_Tape le numéro (1-9)_"
                 );
-                console.log('✅ Quiz session started for:', phone);
+                console.log('✅ Quiz started for:', phone);
             }
         }
     } catch (err) { 
@@ -330,15 +398,14 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200);
 });
 
-// --- 5. KEEP-ALIVE PING ---
+// Keep-Alive
 setInterval(() => {
     axios.get('https://cotoprep-bot.onrender.com/')
-        .then(() => console.log('👋 Self-ping: Staying awake!'))
-        .catch(err => console.error('Ping Error:', err.message));
-}, 600000); // 10 minutes
+        .catch(() => {});
+}, 600000);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`📡 Server listening on port ${PORT}`);
-    console.log(`🌐 Visit: https://cotoprep-bot.onrender.com/scan`);
+    console.log(`📡 Server running on port ${PORT}`);
+    console.log(`🌐 https://cotoprep-bot.onrender.com/scan`);
 });
