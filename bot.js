@@ -47,17 +47,14 @@ function initializeBot() {
 const client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
-            backupSyncIntervalMs: 300000
+            backupSyncIntervalMs: 600000 // 10 minutes
         }),
-        authTimeoutMs: 0, // This stops it from timing out while you're scanning
+        // REMOVE authTimeoutMs: 0 (It can cause hangs)
+        // REMOVE webVersionCache (Let it fetch the newest version automatically)
         qrMaxRetries: 10,
-        webVersionCache: { 
-            type: 'remote', 
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
-        },
         puppeteer: {
             handleSIGINT: false,
-            headless: 'new',
+            headless: "new", // Modern headless mode
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -65,7 +62,8 @@ const client = new Client({
                 '--disable-gpu',
                 '--no-zygote',
                 '--single-process',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                // Use a standard Linux User Agent (Matches Render better)
+                '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
             ]
         }
     });
@@ -204,6 +202,7 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
 
 
