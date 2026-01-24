@@ -42,34 +42,50 @@ FedaPay.setEnvironment('sandbox');
 let userSessions = {}; 
 
 // --- 2. BOT INITIALIZATION ---
+// --- 2. BOT INITIALIZATION ---
 function initializeBot() {
     const store = new MongoStore({ mongoose: mongoose });
-const client = new Client({
+    
+    const client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
-            backupSyncIntervalMs: 600000 // 10 minutes
+            backupSyncIntervalMs: 300000, // 5 minutes (was 10)
+            clientId: 'cotoprep-main' // ADD THIS - identifies this session uniquely
         }),
-        // REMOVE authTimeoutMs: 0 (It can cause hangs)
-        // REMOVE webVersionCache (Let it fetch the newest version automatically)
-        qrMaxRetries: 10,
         puppeteer: {
-            handleSIGINT: false,
-            headless: "new", // Modern headless mode
+            headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
                 '--no-zygote',
                 '--single-process',
-                // Use a standard Linux User Agent (Matches Render better)
-                '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                '--disable-gpu'
             ]
         }
     });
 
+    // ADDED: Log when store is ready
+    client.on('loading_screen', (percent, message) => {
+        console.log('LOADING', percent, message);
+    });
+
+    client.on('authenticated', () => {
+        console.log('✅ AUTHENTICATED - Session is valid!');
+    });
+
+    client.on('auth_failure', msg => {
+        console.error('❌ AUTHENTICATION FAILED:', msg);
+    });
+
+    client.on('disconnected', (reason) => {
+        console.log('⚠️ Client disconnected:', reason);
+        console.log('🔄 Will attempt reconnection...');
+    });
+
     client.on('qr', async (qr) => {
-        // 1. Generate the Web QR Image
         app.qrCodeImage = await QRCode.toDataURL(qr);
         
         console.log('--------------------------------------------');
@@ -77,13 +93,13 @@ const client = new Client({
         console.log('👉 SCAN HERE: https://cotoprep-bot.onrender.com/scan');
         console.log('--------------------------------------------');
 
-        // Backup in terminal just in case
         qrcodeTerminal.generate(qr, { small: true });
     });
 
     client.on('ready', () => {
-        app.qrCodeImage = null; // Clear QR when connected
+        app.qrCodeImage = null;
         console.log('🚀 CotoPrep Bot is LIVE and Ready!');
+        console.log('📱 Phone Number:', client.info.wid.user);
     });
     
     client.on('remote_session_saved', () => {
@@ -92,6 +108,8 @@ const client = new Client({
 
     // --- 3. MESSAGE HANDLING ---
     client.on('message', async (msg) => {
+        console.log(`📩 NEW MESSAGE from ${msg.from}: ${msg.body}`); // ADD THIS LOG
+        
         const userId = msg.from;
         const text = msg.body.toUpperCase().trim();
 
@@ -105,6 +123,7 @@ const client = new Client({
         }
 
         if (text === 'QUIZ') {
+            console.log('🎯 QUIZ command received!'); // ADD THIS
             msg.reply('Génération du lien de paiement (500 CFA)...');
             try {
                 const transaction = await Transaction.create({
@@ -115,7 +134,10 @@ const client = new Client({
                 });
                 const token = await transaction.generateToken();
                 msg.reply(`Paye ici pour commencer : ${token.url}`);
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error('❌ FedaPay Error:', e); 
+                msg.reply('Erreur lors de la génération du paiement.');
+            }
             return;
         }
 
@@ -155,8 +177,10 @@ const client = new Client({
     });
 
     client.initialize();
+    
+    // MAKE CLIENT AVAILABLE GLOBALLY FOR WEBHOOK
+    global.whatsappClient = client;
 }
-
 // --- 4. EXPRESS ROUTES ---
 app.get('/', (req, res) => res.send('Bot is Running'));
 
@@ -181,18 +205,22 @@ app.get('/scan', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
     const data = req.body.entity || req.body;
+    console.log('📥 Webhook received:', JSON.stringify(data, null, 2)); // ADD LOG
+    
     if (data.status === 'approved') {
         const phone = data.custom_metadata?.phone;
         if (phone) {
             userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
             try {
-                await client.sendMessage(phone, "Paiement Reçu ! 🎯 Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
-            } catch (err) { console.error('Webhook Send Error:', err); }
+                // Use the global client instead of undefined 'client'
+                await global.whatsappClient.sendMessage(phone, "Paiement Reçu ! 🎯 Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
+            } catch (err) { 
+                console.error('❌ Webhook Send Error:', err); 
+            }
         }
     }
     res.sendStatus(200);
 });
-
 // --- 5. KEEP-ALIVE PING ---
 setInterval(() => {
     axios.get('https://cotoprep-bot.onrender.com/')
@@ -202,6 +230,7 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`📡 Server listening on port ${PORT}`));
+
 
 
 
