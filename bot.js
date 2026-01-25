@@ -142,34 +142,23 @@ async function startBot() {
                 return sendMessage(resp);
             }
 
-            // QUIZ Command
-           if (text === 'QUIZ') {
-                console.log('🎯 QUIZ triggered by:', from);
-                await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
+          if (text === 'QUIZ') {
+                console.log('🎯 QUIZ triggered');
+                await sendMessage('⏳ Génération du lien de paiement...');
                 
                 try {
-                    // Extract digits only from the WhatsApp ID
-                    let rawNumber = from.split('@')[0].replace(/\D/g, ''); 
+                    const rawNum = from.split('@')[0].replace(/\D/g, '');
                     
-                    // FedaPay usually wants the local number (8 digits) or 
-                    // the full number without '+' for the customer object.
-                    // We'll strip the 229 if it's there to be safe for the 'number' field
-                    let shortNumber = rawNumber.startsWith('229') ? rawNumber.substring(3) : rawNumber;
-
                     const transaction = await Transaction.create({
-                        description: 'Accès Quiz CotoPrep',
+                        description: 'Quiz CotoPrep',
                         amount: 500,
                         currency: { iso: 'XOF' },
                         callback_url: 'https://cotoprep-bot.onrender.com/webhook',
                         customer: {
                             firstname: 'Etudiant',
-                            lastname: 'CotoPrep',
-                            // Unique email per request to prevent 400 Duplicate errors
-                            email: `std_${Date.now()}_${shortNumber}@cotoprep.com`,
-                            phone_number: {
-                                number: shortNumber,
-                                country: 'BJ'
-                            }
+                            lastname: rawNum,
+                            // Date.now() makes the email unique so FedaPay doesn't throw a 400 error
+                            email: `coto_${Date.now()}@test.com` 
                         },
                         custom_metadata: { phone: from }
                     });
@@ -177,14 +166,13 @@ async function startBot() {
                     const token = await transaction.generateToken();
                     
                     await sendMessage(
-                        `💳 *Paiement Mobile Money - 500 CFA*\n\n` +
-                        `Clique ici pour payer : ${token.url}\n\n` +
-                        `_Une fois payé, le quiz commencera automatiquement._`
+                        `💳 *Paiement 500 CFA*\n\n` +
+                        `Lien: ${token.url}\n\n` +
+                        `ID: #${transaction.id}`
                     );
-                } catch (e) { 
-                    // This will now print the EXACT reason from FedaPay in your Render logs
-                    console.error('❌ FedaPay Detail:', e.response ? JSON.stringify(e.response.data) : e.message); 
-                    await sendMessage('❌ Erreur technique FedaPay. Réessaye dans un instant.');
+                } catch (e) {
+                    console.error('❌ FedaPay Error:', e.message);
+                    await sendMessage('❌ Erreur. Réessaye.');
                 }
                 return;
             }
@@ -507,5 +495,6 @@ app.listen(PORT, () => {
     console.log(`📡 Server running on port ${PORT}`);
     console.log(`🌐 https://cotoprep-bot.onrender.com/scan`);
 });
+
 
 
