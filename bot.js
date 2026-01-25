@@ -143,43 +143,46 @@ async function startBot() {
             }
 
             // QUIZ Command
+            // QUIZ Command
             if (text === 'QUIZ') {
                 console.log('🎯 QUIZ triggered by:', from);
                 await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
                 
                 try {
-                    // Extract phone number from WhatsApp JID
-                    const phoneNumber = from.split('@')[0]; // Gets "22997123456" from "22997123456@s.whatsapp.net"
-                    
+                    // Extract phone number for the dummy data
+                    let phoneNumber = from.split('@')[0]; 
+                    if (!phoneNumber.startsWith('229')) phoneNumber = '229' + phoneNumber;
+
                     const transaction = await Transaction.create({
                         description: 'Accès Quiz CotoPrep',
                         amount: 500,
                         currency: { iso: 'XOF' },
                         callback_url: 'https://cotoprep-bot.onrender.com/webhook',
+                        // 🔥 DUMMY DATA: Forces FedaPay to skip Name/Email fields
+                        customer: {
+                            firstname: 'Etudiant',
+                            lastname: 'CotoPrep',
+                            email: `pay_${phoneNumber}@cotoprep.com`,
+                            phone_number: {
+                                number: phoneNumber,
+                                country: 'BJ'
+                            }
+                        },
                         custom_metadata: { 
-                            phone: from,
-                            whatsapp_number: phoneNumber 
+                            phone: from 
                         }
                     });
                     
-                    const token = await transaction.generateToken({
-                        // Force Mobile Money only
-                        mode: 'mtn', // or 'moov' - This removes card/bank options
-                        mobile: {
-                            number: phoneNumber.startsWith('229') ? phoneNumber : '229' + phoneNumber
-                        }
-                    });
+                    const token = await transaction.generateToken();
                     
                     await sendMessage(
                         `💳 *Paiement Mobile Money - 500 CFA*\n\n` +
-                        `Clique ici: ${token.url}\n\n` +
-                        `📱 Ton numéro: ${phoneNumber}\n` +
-                        `_Le paiement s'ouvrira directement avec ton numéro._`
+                        `Clique ici pour payer : ${token.url}\n\n` +
+                        `_Choisis ton réseau (MTN/Moov) et valide ton numéro._`
                     );
-                    console.log('✅ Payment link sent for:', phoneNumber);
                 } catch (e) { 
                     console.error('❌ FedaPay Error:', e.message); 
-                    await sendMessage('❌ Erreur paiement. Réessaye plus tard.');
+                    await sendMessage('❌ Erreur. Réessaye plus tard.');
                 }
                 return;
             }
@@ -503,3 +506,4 @@ app.listen(PORT, () => {
     console.log(`📡 Server running on port ${PORT}`);
     console.log(`🌐 https://cotoprep-bot.onrender.com/scan`);
 });
+
