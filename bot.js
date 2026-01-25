@@ -40,7 +40,7 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 FedaPay.setApiKey(process.env.FEDAPAY_SECRET_KEY);
-FedaPay.setEnvironment('sandbox');
+FedaPay.setEnvironment('live');
 
 let userSessions = {};
 
@@ -503,4 +503,5 @@ app.listen(PORT, () => {
     console.log(`📡 Server running on port ${PORT}`);
     console.log(`🌐 https://cotoprep-bot.onrender.com/scan`);
 });
+
 
