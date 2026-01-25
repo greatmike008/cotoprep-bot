@@ -148,15 +148,35 @@ async function startBot() {
                 await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
                 
                 try {
+                    // Extract phone number from WhatsApp JID
+                    const phoneNumber = from.split('@')[0]; // Gets "22997123456" from "22997123456@s.whatsapp.net"
+                    
                     const transaction = await Transaction.create({
                         description: 'Accès Quiz CotoPrep',
                         amount: 500,
                         currency: { iso: 'XOF' },
-                        custom_metadata: { phone: from } 
+                        callback_url: 'https://cotoprep-bot.onrender.com/webhook',
+                        custom_metadata: { 
+                            phone: from,
+                            whatsapp_number: phoneNumber 
+                        }
                     });
-                    const token = await transaction.generateToken();
-                    await sendMessage(`💳 *Paye ici pour commencer:*\n${token.url}`);
-                    console.log('✅ Payment link sent');
+                    
+                    const token = await transaction.generateToken({
+                        // Force Mobile Money only
+                        mode: 'mtn', // or 'moov' - This removes card/bank options
+                        mobile: {
+                            number: phoneNumber.startsWith('229') ? phoneNumber : '229' + phoneNumber
+                        }
+                    });
+                    
+                    await sendMessage(
+                        `💳 *Paiement Mobile Money - 500 CFA*\n\n` +
+                        `Clique ici: ${token.url}\n\n` +
+                        `📱 Ton numéro: ${phoneNumber}\n` +
+                        `_Le paiement s'ouvrira directement avec ton numéro._`
+                    );
+                    console.log('✅ Payment link sent for:', phoneNumber);
                 } catch (e) { 
                     console.error('❌ FedaPay Error:', e.message); 
                     await sendMessage('❌ Erreur paiement. Réessaye plus tard.');
@@ -425,6 +445,51 @@ app.post('/webhook', async (req, res) => {
         console.error('❌ Webhook Error:', err); 
     }
     res.sendStatus(200);
+});
+
+// 🧪 TEST ROUTE - Simulate payment approval (SANDBOX ONLY!)
+app.get('/test-payment/:phone', async (req, res) => {
+    try {
+        const phone = req.params.phone;
+        
+        // Simulate webhook data
+        const fakeWebhook = {
+            entity: {
+                status: 'approved',
+                custom_metadata: { phone: phone }
+            }
+        };
+        
+        // Trigger the same logic as webhook
+        if (global.whatsappSocket) {
+            userSessions[phone] = { 
+                subject: null, 
+                currentQuestion: 0, 
+                score: 0 
+            };
+            
+            await global.whatsappSocket.sendMessage(phone, {
+                text: "✅ *Paiement Test Approuvé!* 🎯\n\n" +
+                      "Choisis ta matière:\n" +
+                      "1️⃣ MATHS\n2️⃣ SVT\n3️⃣ PCT\n4️⃣ PHILO\n" +
+                      "5️⃣ FRANCAIS\n6️⃣ HIST-GEO\n7️⃣ ANGLAIS\n" +
+                      "8️⃣ ESPAGNOL\n9️⃣ ALLEMAND\n\n" +
+                      "_Tape le numéro (1-9)_"
+            });
+            
+            res.json({ 
+                success: true, 
+                message: `Test payment approved for ${phone}`,
+                note: 'Quiz session started!' 
+            });
+            console.log('🧪 TEST: Quiz started for:', phone);
+        } else {
+            res.status(500).json({ error: 'WhatsApp not connected' });
+        }
+    } catch (err) {
+        console.error('❌ Test Payment Error:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Keep-Alive
