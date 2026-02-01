@@ -40,7 +40,7 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 FedaPay.setApiKey(process.env.FEDAPAY_SECRET_KEY);
-FedaPay.setEnvironment('live');
+FedaPay.setEnvironment('sandbox');
 
 let userSessions = {};
 
@@ -148,8 +148,7 @@ async function startBot() {
                 await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
                 
                 try {
-                    // Extract phone number from WhatsApp JID
-                    const phoneNumber = from.split('@')[0]; // Gets "22997123456" from "22997123456@s.whatsapp.net"
+                    const phoneNumber = from.split('@')[0];
                     
                     const transaction = await Transaction.create({
                         description: 'Accès Quiz CotoPrep',
@@ -162,25 +161,42 @@ async function startBot() {
                         }
                     });
                     
-                    const token = await transaction.generateToken({
-                        // Force Mobile Money only
-                        mode: 'mtn', // or 'moov' - This removes card/bank options
-                        mobile: {
-                            number: phoneNumber.startsWith('229') ? phoneNumber : '229' + phoneNumber
-                        }
-                    });
+                    const token = await transaction.generateToken();
                     
                     await sendMessage(
-                        `💳 *Paiement Mobile Money - 500 CFA*\n\n` +
+                        `💳 *PAIEMENT - 500 CFA*\n\n` +
                         `Clique ici: ${token.url}\n\n` +
-                        `📱 Ton numéro: ${phoneNumber}\n` +
-                        `_Le paiement s'ouvrira directement avec ton numéro._`
+                        `📱 Utilise Mobile Money (MTN/Moov)\n` +
+                        `💡 Ton numéro WhatsApp sera pré-rempli\n\n` +
+                        `_Une fois payé, le quiz démarre automatiquement!_`
                     );
                     console.log('✅ Payment link sent for:', phoneNumber);
                 } catch (e) { 
                     console.error('❌ FedaPay Error:', e.message); 
-                    await sendMessage('❌ Erreur paiement. Réessaye plus tard.');
+                    console.error('Full error:', e);
+                    await sendMessage('❌ Erreur paiement. Réessaye plus tard ou contacte le support.');
                 }
+                return;
+            }
+
+            // 🧪 TEST COMMAND - Skip payment (for testing)
+            if (text === 'TEST' || text === 'START') {
+                console.log('🧪 TEST MODE activated by:', from);
+                
+                userSessions[from] = { 
+                    subject: null, 
+                    currentQuestion: 0, 
+                    score: 0 
+                };
+                
+                await sendMessage(
+                    "🧪 *MODE TEST* (Gratuit)\n\n" +
+                    "Choisis ta matière:\n" +
+                    "1️⃣ MATHS\n2️⃣ SVT\n3️⃣ PCT\n4️⃣ PHILO\n" +
+                    "5️⃣ FRANCAIS\n6️⃣ HIST-GEO\n7️⃣ ANGLAIS\n" +
+                    "8️⃣ ESPAGNOL\n9️⃣ ALLEMAND\n\n" +
+                    "_Tape le numéro (1-9)_"
+                );
                 return;
             }
 
@@ -492,16 +508,25 @@ app.get('/test-payment/:phone', async (req, res) => {
     }
 });
 
-// Keep-Alive
+// 🔥 ENHANCED KEEP-ALIVE - Prevents Render from sleeping
 setInterval(() => {
     axios.get('https://cotoprep-bot.onrender.com/')
-        .catch(() => {});
-}, 600000);
+        .then(() => console.log('👋 Keep-alive ping successful'))
+        .catch((err) => console.error('⚠️ Keep-alive failed:', err.message));
+}, 300000); // Every 5 minutes (300,000ms)
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'alive',
+        uptime: process.uptime(),
+        botConnected: !!global.whatsappSocket,
+        timestamp: new Date().toISOString()
+    });
+});
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`📡 Server running on port ${PORT}`);
     console.log(`🌐 https://cotoprep-bot.onrender.com/scan`);
 });
-
-
