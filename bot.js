@@ -89,12 +89,15 @@ async function startBot() {
 
         try {
             const from = msg.key.remoteJid;
+            // CHECK YOUR RENDER LOGS FOR THIS LINE TO SEE YOUR REAL ID:
+            console.log(`📩 Message from: ${from}`); 
+
             const messageText = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
             const text = messageText.toUpperCase().trim();
-            let dbUser = await User.findOne({ userId: from });
-
+            
             const sendMessage = async (text) => { await sock.sendMessage(from, { text }); };
 
+            // 1. Handle Global Commands first
             if (text === 'CLASSEMENT') {
                 const topUsers = await User.find().sort({ total: -1 }).limit(5);
                 let resp = "🏆 *TOP 5 GÉNIES* 🏆\n\n";
@@ -111,44 +114,71 @@ async function startBot() {
 
             if (text === 'TEST' || text === 'START') {
                 userSessions[from] = { subject: null, currentQuestion: 0, score: 0 };
-                await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9)");
+                await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
                 return;
             }
 
+            // 2. Handle Active Quiz Sessions
             if (userSessions[from]) {
                 let session = userSessions[from];
-                if (text === 'ANNULER') { delete userSessions[from]; return sendMessage("❌ Quiz annulé."); }
+                
+                if (text === 'ANNULER') { 
+                    delete userSessions[from]; 
+                    return sendMessage("❌ Quiz annulé."); 
+                }
 
+                // If no subject is chosen yet, the user is picking 1-9
                 if (!session.subject) {
                     const subjects = ['MATHS', 'SVT', 'PCT', 'PHILO', 'FRANCAIS', 'HIST-GEO', 'ANGLAIS', 'ESPAGNOL', 'ALLEMAND'];
                     const choice = parseInt(text) - 1;
+                    
                     if (choice >= 0 && choice < subjects.length) {
                         session.subject = subjects[choice];
-                        session.questions = [...quizData[session.subject]].sort(() => Math.random() - 0.5).slice(0, 25);
+                        // Get questions and shuffle them
+                        const rawQuestions = quizData[session.subject] || [];
+                        session.questions = [...rawQuestions].sort(() => Math.random() - 0.5).slice(0, 25);
+                        
+                        if (session.questions.length === 0) {
+                            delete userSessions[from];
+                            return sendMessage("❌ Erreur: Aucune question trouvée pour cette matière.");
+                        }
+
                         const q = session.questions[0];
-                        await sendMessage(`*Q1/25*\n\n${q.question}\n\n${q.options.join('\n')}\n\n_Tape A, B ou C_`);
-                    } else { return sendMessage("❌ Choix invalide. Tape 1-9."); }
+                        await sendMessage(`📚 *MATIÈRE: ${session.subject}*\n\n*Q1/25*\n${q.question}\n\n${q.options.join('\n')}\n\n_Réponds par A, B ou C_`);
+                    } else { 
+                        await sendMessage("❌ Choix invalide. Tape un chiffre de 1 à 9."); 
+                    }
                     return;
                 }
 
+                // If subject is already chosen, they are answering A, B, or C
                 const currentQ = session.questions[session.currentQuestion];
                 if (['A', 'B', 'C'].includes(text)) {
-                    if (text === currentQ.answer) session.score++;
+                    const isCorrect = text === currentQ.answer;
+                    if (isCorrect) session.score++;
+                    
                     session.currentQuestion++;
+
                     if (session.currentQuestion < session.questions.length) {
                         const nextQ = session.questions[session.currentQuestion];
-                        await sendMessage(`${text === currentQ.answer ? '✅' : '❌ Faux!'} \n*Q${session.currentQuestion+1}/25*\n\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
+                        await sendMessage(`${isCorrect ? '✅' : '❌ (Réponse: ' + currentQ.answer + ')'} \n\n*Q${session.currentQuestion+1}/25*\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
                     } else {
+                        // End of Quiz
+                        let dbUser = await User.findOne({ userId: from });
                         const userName = msg.pushName || "Étudiant";
                         if (!dbUser) { dbUser = new User({ userId: from, name: userName }); }
+                        
                         dbUser.total += session.score;
                         await dbUser.save();
-                        await sendMessage(`🎉 *FINI!* Score: ${session.score}/25\nTotal Points: ${dbUser.total}`);
+                        
+                        await sendMessage(`🎉 *QUIZ TERMINÉ !*\n\nScore: ${session.score}/25\nTotal cumulé: ${dbUser.total} pts.\n\nTape *CLASSEMENT* pour voir le top 5 !`);
                         delete userSessions[from];
                     }
                 }
             }
-        } catch (error) { console.error('❌ Error:', error); }
+        } catch (error) { 
+            console.error('❌ Error in message handler:', error); 
+        }
     });
     global.whatsappSocket = sock;
 }
@@ -213,4 +243,5 @@ app.post('/webhook', async (req, res) => {
 setInterval(() => { axios.get('https://cotoprep-bot.onrender.com/').catch(() => {}); }, 300000);
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log(`📡 Port ${PORT}`); });
+
 
