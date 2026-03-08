@@ -16,7 +16,7 @@ const path = require('path');
 const app = express();
 app.use(bodyParser.json());
 
-app.qrCodeImage = null;
+app.qrCodeImage = null; 
 let sock = null;
 
 // --- 1. DATABASE CONNECTION ---
@@ -72,7 +72,10 @@ async function startBot() {
             app.qrCodeImage = await QRCode.toDataURL(qr);
             qrcodeTerminal.generate(qr, { small: true });
         }
-        if (connection === 'open') { app.qrCodeImage = null; console.log('🚀 BOT IS LIVE!'); }
+        if (connection === 'open') { 
+            app.qrCodeImage = null; 
+            console.log('🚀 BOT IS LIVE!'); 
+        }
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) setTimeout(() => startBot(), 5000);
@@ -101,21 +104,14 @@ async function startBot() {
 
             if (text === 'QUIZ') {
                 await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
-                // Creating the redirect URL for KKiaPay
                 const paymentUrl = `https://payment.kkiapay.me/api/v1/pay?k=${process.env.KKIAPAY_PUBLIC_KEY}&a=500&s=CotoPrep&p=${from}`;
-
-                await sendMessage(
-                    `💳 *PAIEMENT - 500 CFA*\n\n` +
-                    `Clique ici pour payer: ${paymentUrl}\n\n` +
-                    `📱 Utilise MTN ou Moov Money\n` +
-                    `_Le quiz commencera dès que le paiement sera validé._`
-                );
+                await sendMessage(`💳 *PAIEMENT - 500 CFA*\n\nClique ici: ${paymentUrl}\n\n_Une fois payé, le quiz démarre automatiquement!_`);
                 return;
             }
 
             if (text === 'TEST' || text === 'START') {
                 userSessions[from] = { subject: null, currentQuestion: 0, score: 0 };
-                await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
+                await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9)");
                 return;
             }
 
@@ -130,26 +126,24 @@ async function startBot() {
                         session.subject = subjects[choice];
                         session.questions = [...quizData[session.subject]].sort(() => Math.random() - 0.5).slice(0, 25);
                         const q = session.questions[0];
-                        await sendMessage(`*Q1/25*\n\n${q.question}\n\n${q.options.join('\n')}\n\n_Réponds par A, B ou C_`);
-                    } else { return sendMessage("❌ Choix invalide. Tape un chiffre de 1 à 9."); }
+                        await sendMessage(`*Q1/25*\n\n${q.question}\n\n${q.options.join('\n')}\n\n_Tape A, B ou C_`);
+                    } else { return sendMessage("❌ Choix invalide. Tape 1-9."); }
                     return;
                 }
 
                 const currentQ = session.questions[session.currentQuestion];
                 if (['A', 'B', 'C'].includes(text)) {
-                    const isCorrect = text === currentQ.answer;
-                    if (isCorrect) session.score++;
+                    if (text === currentQ.answer) session.score++;
                     session.currentQuestion++;
-
                     if (session.currentQuestion < session.questions.length) {
                         const nextQ = session.questions[session.currentQuestion];
-                        await sendMessage(`${isCorrect ? '✅ Bien joué!' : '❌ Faux!'} \n\n*Q${session.currentQuestion+1}/25*\n\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
+                        await sendMessage(`${text === currentQ.answer ? '✅' : '❌ Faux!'} \n*Q${session.currentQuestion+1}/25*\n\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
                     } else {
                         const userName = msg.pushName || "Étudiant";
                         if (!dbUser) { dbUser = new User({ userId: from, name: userName }); }
                         dbUser.total += session.score;
                         await dbUser.save();
-                        await sendMessage(`🎉 *BRAVO!* \n\nTon score: ${session.score}/25\nTotal cumulé: ${dbUser.total} points.\n\nTape *CLASSEMENT* pour voir ta place!`);
+                        await sendMessage(`🎉 *FINI!* Score: ${session.score}/25\nTotal Points: ${dbUser.total}`);
                         delete userSessions[from];
                     }
                 }
@@ -159,32 +153,47 @@ async function startBot() {
     global.whatsappSocket = sock;
 }
 
-app.get('/', (req, res) => { res.send('<h1>CotoPrep Bot Online</h1>'); });
-app.get('/scan', (req, res) => { /* Your QR logic remains here */ });
+// --- 3. EXPRESS ROUTES (FIXED /SCAN) ---
+app.get('/', (req, res) => { res.send('<h1>CotoPrep Bot Online</h1><p>Visit <a href="/scan">/scan</a> to link WhatsApp.</p>'); });
 
-// --- 3. THE SECURE WEBHOOK ---
+app.get('/scan', (req, res) => {
+    if (app.qrCodeImage) {
+        res.send(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+            <h2>Scan to Link CotoPrep Bot</h2>
+            <img src="${app.qrCodeImage}" style="border:10px solid white;box-shadow:0 0 10px rgba(0,0,0,0.1);">
+            <p>Refresh page if code expires.</p></body></html>`);
+    } else {
+        res.send('<h1>No QR Code available</h1><p>Bot is either already connected or starting up.</p>');
+    }
+});
+
+// --- MANUAL BYPASS FOR LOCKED WEBHOOK ---
+app.get('/test-payment/:phone', async (req, res) => {
+    const phone = req.params.phone; 
+    if (global.whatsappSocket) {
+        userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
+        await global.whatsappSocket.sendMessage(phone, {
+            text: "✅ *Paiement Test Approuvé!* \n\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
+        });
+        res.send(`Success! Quiz started for ${phone}`);
+    } else { res.status(500).send("Bot not connected"); }
+});
+
 app.post('/webhook', async (req, res) => {
-    // We check if the notification actually comes from KKiaPay using the hash
-    const hash = process.env.KKIAPAY_SECRET_HASH;
-    
     try {
         const { transactionId } = req.body;
         const response = await kkia.verify(transactionId);
-        
         if (response.status === 'SUCCESS') {
-            const phone = response.partnerId; // We passed 'from' in the URL as 'p'
-            
+            const phone = response.partnerId;
             if (phone && global.whatsappSocket) {
                 userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
-                await global.whatsappSocket.sendMessage(phone, {
-                    text: "✅ *Paiement Confirmé!* 🎯\n\nPrêt pour le quiz? Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
-                });
+                await global.whatsappSocket.sendMessage(phone, { text: "✅ *Paiement Confirmé!* \nChoisis ta matière (1-9)" });
             }
         }
-    } catch (err) { console.error('❌ Webhook Verification Error:', err); }
+    } catch (err) { console.error('❌ Webhook Error:', err); }
     res.sendStatus(200);
 });
 
 setInterval(() => { axios.get('https://cotoprep-bot.onrender.com/').catch(() => {}); }, 300000);
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => { console.log(`📡 Server listening on ${PORT}`); });
+app.listen(PORT, () => { console.log(`📡 Port ${PORT}`); });
