@@ -89,7 +89,6 @@ async function startBot() {
 
         try {
             const from = msg.key.remoteJid;
-            // CHECK YOUR RENDER LOGS FOR THIS LINE TO SEE YOUR REAL ID:
             console.log(`📩 Message from: ${from}`); 
 
             const messageText = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
@@ -113,7 +112,7 @@ async function startBot() {
             }
 
             if (text === 'TEST' || text === 'START') {
-                userSessions[from] = { subject: null, currentQuestion: 0, score: 0 };
+                userSessions[from] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
                 await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
                 return;
             }
@@ -127,54 +126,60 @@ async function startBot() {
                     return sendMessage("❌ Quiz annulé."); 
                 }
 
-                // If no subject is chosen yet, the user is picking 1-9
+                // Stage A: Selecting Subject
                 if (!session.subject) {
                     const subjects = ['MATHS', 'SVT', 'PCT', 'PHILO', 'FRANCAIS', 'HIST-GEO', 'ANGLAIS', 'ESPAGNOL', 'ALLEMAND'];
                     const choice = parseInt(text) - 1;
                     
-                    if (choice >= 0 && choice < subjects.length) {
-                        session.subject = subjects[choice];
-                        // Get questions and shuffle them
-                        const rawQuestions = quizData[session.subject] || [];
-                        session.questions = [...rawQuestions].sort(() => Math.random() - 0.5).slice(0, 25);
+                    if (!isNaN(choice) && choice >= 0 && choice < subjects.length) {
+                        const selectedSub = subjects[choice];
+                        const rawQuestions = quizData[selectedSub] || [];
                         
-                        if (session.questions.length === 0) {
+                        if (rawQuestions.length === 0) {
                             delete userSessions[from];
-                            return sendMessage("❌ Erreur: Aucune question trouvée pour cette matière.");
+                            return sendMessage(`❌ Erreur: Aucune question trouvée pour ${selectedSub}.`);
                         }
 
+                        session.subject = selectedSub;
+                        session.questions = [...rawQuestions].sort(() => Math.random() - 0.5).slice(0, 25);
+                        session.currentQuestion = 0;
+
                         const q = session.questions[0];
-                        await sendMessage(`📚 *MATIÈRE: ${session.subject}*\n\n*Q1/25*\n${q.question}\n\n${q.options.join('\n')}\n\n_Réponds par A, B ou C_`);
+                        return sendMessage(`📚 *MATIÈRE: ${session.subject}*\n\n*Q1/${session.questions.length}*\n${q.question}\n\n${q.options.join('\n')}\n\n_Réponds par A, B ou C_`);
                     } else { 
-                        await sendMessage("❌ Choix invalide. Tape un chiffre de 1 à 9."); 
+                        return sendMessage("❌ Choix invalide. Tape un chiffre de 1 à 9."); 
                     }
-                    return;
                 }
 
-                // If subject is already chosen, they are answering A, B, or C
+                // Stage B: Answering Questions
                 const currentQ = session.questions[session.currentQuestion];
                 if (['A', 'B', 'C'].includes(text)) {
-                    const isCorrect = text === currentQ.answer;
-                    if (isCorrect) session.score++;
+                    const isCorrect = text === currentQ.answer.toUpperCase();
+                    let feedback = isCorrect ? "✅ *Correct !*" : `❌ *Faux !*\nLa réponse était: *${currentQ.answer}*`;
                     
+                    if (currentQ.explanation) feedback += `\n\n💡 ${currentQ.explanation}`;
+
+                    if (isCorrect) session.score++;
                     session.currentQuestion++;
 
                     if (session.currentQuestion < session.questions.length) {
                         const nextQ = session.questions[session.currentQuestion];
-                        await sendMessage(`${isCorrect ? '✅' : '❌ (Réponse: ' + currentQ.answer + ')'} \n\n*Q${session.currentQuestion+1}/25*\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
+                        await sendMessage(`${feedback}\n\n------------------\n\n*Q${session.currentQuestion+1}/${session.questions.length}*\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
                     } else {
                         // End of Quiz
                         let dbUser = await User.findOne({ userId: from });
-                        const userName = msg.pushName || "Étudiant";
-                        if (!dbUser) { dbUser = new User({ userId: from, name: userName }); }
+                        if (!dbUser) { dbUser = new User({ userId: from, name: msg.pushName || "Étudiant" }); }
                         
                         dbUser.total += session.score;
                         await dbUser.save();
                         
-                        await sendMessage(`🎉 *QUIZ TERMINÉ !*\n\nScore: ${session.score}/25\nTotal cumulé: ${dbUser.total} pts.\n\nTape *CLASSEMENT* pour voir le top 5 !`);
+                        await sendMessage(`🎉 *QUIZ TERMINÉ !*\n\nScore: ${session.score}/${session.questions.length}\nTotal cumulé: ${dbUser.total} pts.\n\nTape *CLASSEMENT* pour voir le top 5 !`);
                         delete userSessions[from];
                     }
+                } else {
+                    return sendMessage("⚠️ Réponds par *A*, *B* ou *C*.");
                 }
+                return;
             }
         } catch (error) { 
             console.error('❌ Error in message handler:', error); 
@@ -183,7 +188,7 @@ async function startBot() {
     global.whatsappSocket = sock;
 }
 
-// --- 3. EXPRESS ROUTES (FIXED /SCAN) ---
+// --- 3. EXPRESS ROUTES ---
 app.get('/', (req, res) => { res.send('<h1>CotoPrep Bot Online</h1><p>Visit <a href="/scan">/scan</a> to link WhatsApp.</p>'); });
 
 app.get('/scan', (req, res) => {
@@ -197,31 +202,22 @@ app.get('/scan', (req, res) => {
     }
 });
 
-// --- MANUAL BYPASS FOR LOCKED WEBHOOK ---
-// --- IMPROVED MANUAL BYPASS ROUTE ---
 app.get('/test-payment/:phone', async (req, res) => {
     const phone = req.params.phone; 
-    
-    // Check if the socket exists in the global scope or the local 'sock' variable
     const activeSocket = global.whatsappSocket || sock;
 
     if (activeSocket) {
         try {
-            // Force create the session
-            userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
-            
-            // Send the message
+            userSessions[phone] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
             await activeSocket.sendMessage(phone, {
                 text: "✅ *Paiement Test Approuvé!* \n\nPrêt pour le quiz? Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
             });
-            
             res.send(`🚀 Message sent to ${phone}! Check your WhatsApp.`);
         } catch (err) {
-            console.error("Failed to send WhatsApp message:", err);
             res.status(500).send("Error sending message: " + err.message);
         }
     } else {
-        res.status(500).send("Bot is not connected. Please go to /scan and link your device first.");
+        res.status(500).send("Bot is not connected.");
     }
 });
 
@@ -232,7 +228,7 @@ app.post('/webhook', async (req, res) => {
         if (response.status === 'SUCCESS') {
             const phone = response.partnerId;
             if (phone && global.whatsappSocket) {
-                userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
+                userSessions[phone] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
                 await global.whatsappSocket.sendMessage(phone, { text: "✅ *Paiement Confirmé!* \nChoisis ta matière (1-9)" });
             }
         }
@@ -243,5 +239,3 @@ app.post('/webhook', async (req, res) => {
 setInterval(() => { axios.get('https://cotoprep-bot.onrender.com/').catch(() => {}); }, 300000);
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log(`📡 Port ${PORT}`); });
-
-
