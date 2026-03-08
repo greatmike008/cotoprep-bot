@@ -168,15 +168,31 @@ app.get('/scan', (req, res) => {
 });
 
 // --- MANUAL BYPASS FOR LOCKED WEBHOOK ---
+// --- IMPROVED MANUAL BYPASS ROUTE ---
 app.get('/test-payment/:phone', async (req, res) => {
     const phone = req.params.phone; 
-    if (global.whatsappSocket) {
-        userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
-        await global.whatsappSocket.sendMessage(phone, {
-            text: "✅ *Paiement Test Approuvé!* \n\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
-        });
-        res.send(`Success! Quiz started for ${phone}`);
-    } else { res.status(500).send("Bot not connected"); }
+    
+    // Check if the socket exists in the global scope or the local 'sock' variable
+    const activeSocket = global.whatsappSocket || sock;
+
+    if (activeSocket) {
+        try {
+            // Force create the session
+            userSessions[phone] = { subject: null, currentQuestion: 0, score: 0 };
+            
+            // Send the message
+            await activeSocket.sendMessage(phone, {
+                text: "✅ *Paiement Test Approuvé!* \n\nPrêt pour le quiz? Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
+            });
+            
+            res.send(`🚀 Message sent to ${phone}! Check your WhatsApp.`);
+        } catch (err) {
+            console.error("Failed to send WhatsApp message:", err);
+            res.status(500).send("Error sending message: " + err.message);
+        }
+    } else {
+        res.status(500).send("Bot is not connected. Please go to /scan and link your device first.");
+    }
 });
 
 app.post('/webhook', async (req, res) => {
@@ -197,3 +213,4 @@ app.post('/webhook', async (req, res) => {
 setInterval(() => { axios.get('https://cotoprep-bot.onrender.com/').catch(() => {}); }, 300000);
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log(`📡 Port ${PORT}`); });
+
