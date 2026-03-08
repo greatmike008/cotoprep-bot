@@ -13,7 +13,7 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.8",
     "@hapi/boom": "^10.0.1",
-    "@kkiapay-org/nodejs-sdk": "^1.1.2",
+    "@kkiapay-org/nodejs-sdk": "^1.0.7",
     "axios": "^1.6.0",
     "body-parser": "^2.2.2",
     "dotenv": "^17.2.3",
