@@ -381,12 +381,135 @@ app.get('/', (req, res) => { res.send('<h1>CotoPrep Bot Online</h1><p>Visit <a h
 
 app.get('/scan', (req, res) => {
     if (app.qrCodeImage) {
-        res.send(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
-            <h2>Scan to Link CotoPrep Bot</h2>
-            <img src="${app.qrCodeImage}" style="border:10px solid white;box-shadow:0 0 10px rgba(0,0,0,0.1);">
-            <p>Refresh page if code expires.</p></body></html>`);
+        res.send(`<html>
+<head>
+    <title>CotoPrep Bot - Scan QR Code</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        img {
+            border: 5px solid #667eea;
+            border-radius: 10px;
+            padding: 15px;
+            background: white;
+            margin: 20px 0;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+        .refresh-btn:hover {
+            background: #764ba2;
+        }
+        .status {
+            font-size: 12px;
+            color: #999;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 Scan to Link CotoPrep Bot</h1>
+        <p>Point your phone's camera at this QR code</p>
+        <img src="${app.qrCodeImage}" alt="QR Code">
+        <p>✅ Use your WhatsApp app to scan</p>
+        <button class="refresh-btn" onclick="location.reload()">🔄 Refresh QR Code</button>
+        <div class="status">QR code expires after ~60 seconds</div>
+    </div>
+</body>
+</html>`);
     } else {
-        res.send('<h1>No QR Code available</h1><p>Bot is either already connected or starting up.</p>');
+        res.send(`<html>
+<head>
+    <title>CotoPrep Bot - Status</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin: 0;
+        }
+        p {
+            color: #666;
+            font-size: 16px;
+        }
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .refresh-btn:hover {
+            background: #764ba2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Bot Status</h1>
+        <p>✅ Bot is connected or starting up</p>
+        <p>No QR code available at the moment</p>
+        <button class="refresh-btn" onclick="location.reload()">🔄 Check Again</button>
+    </div>
+</body>
+</html>`);
     }
 });
 
