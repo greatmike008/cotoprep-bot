@@ -28,9 +28,10 @@ const normalizeBenin = (phone) => {
     // Remove all non-digits
     let cleaned = phone.replace(/\D/g, '');
     
-    // If starts with 0 (local format), convert to international
+    // If starts with 0 (local format), convert to international by prepending 229
+    // DO NOT remove the 0 - Benin format is 229 + 0XXXXXXXX = 2290XXXXXXXX
     if (cleaned.startsWith('0')) {
-        cleaned = '229' + cleaned.substring(1);
+        cleaned = '229' + cleaned;  // FIXED: was substring(1), now keeps the 0
     }
     
     // If doesn't start with 229, assume it's international and add 229
