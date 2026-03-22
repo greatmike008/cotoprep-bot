@@ -67,7 +67,17 @@ const isAdmin = async (userId) => {
 };
 
 const hasActiveAccess = async (userId) => {
-    const user = await User.findOne({ userId });
+    // Extract just the phone number from userId (remove @s.whatsapp.net or @lid)
+    const phoneFromId = userId.split('@')[0];
+    
+    // Look for ANY user record that matches this phone number
+    const user = await User.findOne({
+        $or: [
+            { userId: userId },  // Exact match
+            { userId: { $regex: phoneFromId } }  // Contains the phone number
+        ]
+    });
+    
     if (!user) return false;
     if (!user.paidUntil) return false;
     return new Date() < new Date(user.paidUntil);
@@ -91,7 +101,17 @@ const getPendingPayments = async () => {
 };
 
 const getTimeRemaining = async (userId) => {
-    const user = await User.findOne({ userId });
+    // Extract just the phone number from userId
+    const phoneFromId = userId.split('@')[0];
+    
+    // Look for ANY user record that matches this phone number
+    const user = await User.findOne({
+        $or: [
+            { userId: userId },
+            { userId: { $regex: phoneFromId } }
+        ]
+    });
+    
     if (!user || !user.paidUntil) return null;
     const now = new Date();
     const remaining = user.paidUntil - now;
@@ -390,8 +410,14 @@ async function startBot() {
                         const nextQ = session.questions[session.currentQuestion];
                         await sendMessage(`${feedback}\n\n------------------\n\n*Q${session.currentQuestion+1}/${session.questions.length}*\n\n${nextQ.question}\n\n${nextQ.options.map((opt, i) => `${String.fromCharCode(65+i)}. ${opt}`).join('\n')}`);
                     } else {
-                        // End of Quiz
-                        let dbUser = await User.findOne({ userId: from });
+                        // End of Quiz - find user by phone number pattern
+                        const phoneFromId = from.split('@')[0];
+                        let dbUser = await User.findOne({
+                            $or: [
+                                { userId: from },
+                                { userId: { $regex: phoneFromId } }
+                            ]
+                        });
                         if (!dbUser) { dbUser = new User({ userId: from, name: msg.pushName || "Étudiant" }); }
                         
                         dbUser.total += session.score;
