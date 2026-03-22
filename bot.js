@@ -84,10 +84,22 @@ const hasActiveAccess = async (userId) => {
 };
 
 const grantAccess = async (userId, name) => {
-    let user = await User.findOne({ userId });
+    // Extract phone number to search by pattern
+    const phoneFromId = userId.split('@')[0];
+    
+    // Look for ANY user record matching this phone number
+    let user = await User.findOne({
+        $or: [
+            { userId: userId },
+            { userId: { $regex: phoneFromId } }
+        ]
+    });
+    
+    // If still no user found, create new one with the provided userId
     if (!user) {
         user = new User({ userId, name });
     }
+    
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
     user.paidUntil = tomorrow;
@@ -435,15 +447,6 @@ async function startBot() {
                     return sendMessage("⚠️ Réponds par *A*, *B* ou *C*.");
                 }
                 return;
-            }
-
-            // DEBUG COMMAND (for everyone to test)
-            if (text === 'DEBUG') {
-                const phoneFromId = from.split('@')[0];
-                const normalizedId = normalizeBenin(phoneFromId);
-                const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
-                const isAdminStatus = normalizedId === normalizedAdmin ? '✅ OUI' : '❌ NON';
-                return sendMessage(`🔍 *DEBUG INFO*\n\nTon WhatsApp ID:\n${from}\n\nNuméro extrait:\n${phoneFromId}\n\nNormalisé:\n${normalizedId}\n\n━━━━━━━━━━━━━━━━\nADMIN CONFIG:\n${ADMIN_NUMBER}\n\nNormalisé:\n${normalizedAdmin}\n\n━━━━━━━━━━━━━━━━\n👤 Es-tu admin?\n${isAdminStatus}`);
             }
 
             // Fallback: Unknown command
