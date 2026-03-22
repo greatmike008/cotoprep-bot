@@ -24,22 +24,9 @@ const SISTER_MOMO = '+2290150396598'; // Sister's MTN MoMo number
 const QUIZ_PRICE = 500; // CFA
 
 // --- PHONE NUMBER NORMALIZATION ---
-const normalizeBenin = (phone) => {
-    // Remove all non-digits
-    let cleaned = phone.replace(/\D/g, '');
-    
-    // If starts with 0 (local format), convert to international by prepending 229
-    // DO NOT remove the 0 - Benin format is 229 + 0XXXXXXXX = 2290XXXXXXXX
-    if (cleaned.startsWith('0')) {
-        cleaned = '229' + cleaned;  // FIXED: was substring(1), now keeps the 0
-    }
-    
-    // If doesn't start with 229, assume it's international and add 229
-    if (!cleaned.startsWith('229')) {
-        cleaned = '229' + cleaned;
-    }
-    
-    return cleaned;
+// Simple: just remove non-digits, accept as-is (works globally)
+const cleanPhone = (phone) => {
+    return phone.replace(/\D/g, '');  // Remove all non-digits only
 };
 
 // --- 1. DATABASE CONNECTION ---
@@ -232,9 +219,9 @@ async function startBot() {
             if (text.startsWith('REGISTER_ADMIN ')) {
                 const phoneToRegister = text.split(' ')[1];
                 if (!phoneToRegister) {
-                    return sendMessage('❌ Format: REGISTER_ADMIN [numéro_whatsapp]\nExemple: REGISTER_ADMIN 0141356526');
+                    return sendMessage('❌ Format: REGISTER_ADMIN [numéro_whatsapp]\nExemple: REGISTER_ADMIN 2290141356526\nOu tout autre numéro international');
                 }
-                const normalizedPhone = normalizeBenin(phoneToRegister);
+                const cleanedPhone = cleanPhone(phoneToRegister);
                 
                 try {
                     // Check if already registered
@@ -244,9 +231,9 @@ async function startBot() {
                     }
                     
                     // Register new admin
-                    const newAdmin = new Admin({ whatsappId: from, phoneNumber: normalizedPhone });
+                    const newAdmin = new Admin({ whatsappId: from, phoneNumber: cleanedPhone });
                     await newAdmin.save();
-                    return sendMessage(`✅ *ADMIN ENREGISTRÉ!*\n\n🔐 Numéro: ${normalizedPhone}\n\nTu peux maintenant utiliser:\n• *APPROVE* [numéro]\n• *PENDING* - Voir les paiements en attente\n• *INFO* - Statistiques`);
+                    return sendMessage(`✅ *ADMIN ENREGISTRÉ!*\n\n🔐 Numéro: ${cleanedPhone}\n\nTu peux maintenant utiliser:\n• *APPROVE* [numéro]\n• *PENDING* - Voir les paiements en attente\n• *INFO* - Statistiques`);
                 } catch (err) {
                     console.error('Admin registration error:', err);
                     return sendMessage('❌ Erreur lors de l\'enregistrement. Numéro déjà utilisé?');
@@ -260,12 +247,12 @@ async function startBot() {
                 if (text.startsWith('APPROVE ')) {
                     const phoneToApprove = text.split(' ')[1];
                     if (!phoneToApprove) {
-                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 0141356536\nOu: APPROVE 2290141356536');
+                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 2290141356526\nOu tout autre numéro international');
                     }
-                    const normalizedPhone = normalizeBenin(phoneToApprove);
-                    const fullPhone = normalizedPhone + '@s.whatsapp.net';
+                    const cleanedPhone = cleanPhone(phoneToApprove);
+                    const fullPhone = cleanedPhone + '@s.whatsapp.net';
                     const user = await grantAccess(fullPhone, 'Utilisateur');
-                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${normalizedPhone}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
+                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${cleanedPhone}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
                     
                     // Send confirmation to user
                     await sock.sendMessage(fullPhone, { 
@@ -296,13 +283,7 @@ async function startBot() {
                     return sendMessage(`📊 *STATISTIQUES*\n\n👥 Total utilisateurs: ${totalUsers}\n✅ Approuvés: ${approvedUsers}\n⏳ En attente: ${pendingUsers}`);
                 }
 
-                // TEST_ADMIN command (for debugging admin status)
-                if (text === 'TEST_ADMIN') {
-                    const phoneFromId = from.split('@')[0];
-                    const normalizedId = normalizeBenin(phoneFromId);
-                    const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
-                    return sendMessage(`🔍 *TEST ADMIN*\n\nTon ID: ${from}\nNuméro extrait: ${phoneFromId}\nNormalisé: ${normalizedId}\n\nAdmin config: ${ADMIN_NUMBER}\nNormalisé: ${normalizedAdmin}\n\n${normalizedId === normalizedAdmin ? '✅ TU ES ADMIN!' : '❌ Pas admin'}`);
-                }
+
             }
 
             // 1. Handle Global Commands
