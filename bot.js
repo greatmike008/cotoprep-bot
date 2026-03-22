@@ -397,6 +397,15 @@ async function startBot() {
                 return;
             }
 
+            // DEBUG COMMAND (for everyone to test)
+            if (text === 'DEBUG') {
+                const phoneFromId = from.split('@')[0];
+                const normalizedId = normalizeBenin(phoneFromId);
+                const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
+                const isAdminStatus = normalizedId === normalizedAdmin ? '✅ OUI' : '❌ NON';
+                return sendMessage(`🔍 *DEBUG INFO*\n\nTon WhatsApp ID:\n${from}\n\nNuméro extrait:\n${phoneFromId}\n\nNormalisé:\n${normalizedId}\n\n━━━━━━━━━━━━━━━━\nADMIN CONFIG:\n${ADMIN_NUMBER}\n\nNormalisé:\n${normalizedAdmin}\n\n━━━━━━━━━━━━━━━━\n👤 Es-tu admin?\n${isAdminStatus}`);
+            }
+
             // Fallback: Unknown command
             return sendMessage(`❌ Commande non reconnue.\n\n📋 *COMMANDES DISPONIBLES:*\n\n📚 *DÉMARRER* - Commencer un quiz\n🏆 *CLASSEMENT* - Top 5\n⏱️ *TEMPS* - Temps restant\n💡 *AIDE* - Questions fréquentes\n📞 *CONTACT* - Besoin d'aide?\n\n👉 Tape *DÉMARRER* pour commencer! 🚀`);
 
