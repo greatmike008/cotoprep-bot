@@ -6,7 +6,6 @@ const mongoose = require('mongoose');
 const quizData = require('./questions');
 const express = require('express');
 const bodyParser = require('body-parser');
-const { kkiapay } = require('@kkiapay-org/nodejs-sdk'); 
 const qrcodeTerminal = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const axios = require('axios');
@@ -18,6 +17,11 @@ app.use(bodyParser.json());
 
 app.qrCodeImage = null; 
 let sock = null;
+
+// --- ADMIN CONFIG ---
+const ADMIN_NUMBER = '2290141356536'; // Your WhatsApp admin number
+const SISTER_MOMO = '+2290150396598'; // Sister's MTN MoMo number
+const QUIZ_PRICE = 500; // CFA
 
 // --- 1. DATABASE CONNECTION ---
 const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
@@ -35,17 +39,107 @@ const userSchema = new mongoose.Schema({
     userId: { type: String, unique: true },
     name: String,
     total: { type: Number, default: 0 },
-    giftClaimed: { type: Boolean, default: false }
+    giftClaimed: { type: Boolean, default: false },
+    paidUntil: { type: Date, default: null }, // Timestamp when access expires
+    paymentStatus: { type: String, enum: ['pending', 'approved', 'expired'], default: 'pending' } // pending, approved, expired
 });
 const User = mongoose.model('User', userSchema);
 
-// --- 2. KKIA PAY INITIALIZATION ---
-const kkia = kkiapay({
-    publickey: process.env.KKIAPAY_PUBLIC_KEY,
-    privatekey: process.env.KKIAPAY_PRIVATE_KEY,
-    secretkey: process.env.KKIAPAY_SECRET_KEY,
-    sandbox: true 
-});
+// --- 2. HELPER FUNCTIONS ---
+const isAdmin = (userId) => {
+    return userId.includes(ADMIN_NUMBER);
+};
+
+const hasActiveAccess = async (userId) => {
+    const user = await User.findOne({ userId });
+    if (!user) return false;
+    if (!user.paidUntil) return false;
+    return new Date() < new Date(user.paidUntil);
+};
+
+const grantAccess = async (userId, name) => {
+    let user = await User.findOne({ userId });
+    if (!user) {
+        user = new User({ userId, name });
+    }
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+    user.paidUntil = tomorrow;
+    user.paymentStatus = 'approved';
+    await user.save();
+    return user;
+};
+
+const getPendingPayments = async () => {
+    return await User.find({ paymentStatus: 'pending' });
+};
+
+const getTimeRemaining = async (userId) => {
+    const user = await User.findOne({ userId });
+    if (!user || !user.paidUntil) return null;
+    const now = new Date();
+    const remaining = user.paidUntil - now;
+    if (remaining <= 0) return null;
+    const hours = Math.floor(remaining / (1000 * 60 * 60));
+    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+};
+
+const sendWelcomeMessage = async (sendMessage) => {
+    const welcomeMsg = `
+🎓 *BIENVENUE SUR COTOPREP!* 🎓
+
+Salut! 👋 Je suis ton assistant d'études pour l'examen BAAC.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 *COMMENT ÇA MARCHE?*
+
+1️⃣ Tape *DÉMARRER* pour commencer
+2️⃣ Paie 500 CFA à ${SISTER_MOMO}
+3️⃣ Écris ton numéro WhatsApp dans le message de virement
+4️⃣ Envoie-moi la confirmation
+5️⃣ J'active ton accès (24h)
+6️⃣ Étudie sans limites! 📚
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 *MES COMMANDES:*
+
+📚 *DÉMARRER* - Accéder aux quiz
+🏆 *CLASSEMENT* - Top 5 des meilleurs étudiants
+⏱️ *TEMPS* - Voir ton temps restant
+💡 *AIDE* - Questions fréquentes
+📱 *CONTACT* - Besoin d'aide? (Admin)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎓 *LES MATIÈRES:*
+1. 🔢 MATHS
+2. 🧬 SVT
+3. ⚗️ PCT
+4. 🤔 PHILO
+5. 📖 FRANÇAIS
+6. 🌍 HIST-GEO
+7. 🇬🇧 ANGLAIS
+8. 🇪🇸 ESPAGNOL
+9. 🇩🇪 ALLEMAND
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ *AVANTAGES:*
+✅ 25 questions par quiz
+✅ Réponses expliquées
+✅ Suivi de tes progrès
+✅ Accès 24h illimité
+✅ 500 CFA seulement!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👉 *Prêt?* Tape *DÉMARRER* pour commencer! 🚀
+    `;
+    await sendMessage(welcomeMsg);
+};
 
 let userSessions = {};
 
@@ -96,7 +190,58 @@ async function startBot() {
             
             const sendMessage = async (text) => { await sock.sendMessage(from, { text }); };
 
-            // 1. Handle Global Commands first
+            // Check if user is new - send welcome message
+            const existingUser = await User.findOne({ userId: from });
+            if (!existingUser) {
+                const newUser = new User({ userId: from, name: msg.pushName || "Étudiant", paymentStatus: 'pending' });
+                await newUser.save();
+                await sendWelcomeMessage(sendMessage);
+                return;
+            }
+
+            // --- ADMIN COMMANDS ---
+            if (isAdmin(from)) {
+                // APPROVE command
+                if (text.startsWith('APPROVE ')) {
+                    const phoneToApprove = text.split(' ')[1];
+                    if (!phoneToApprove) {
+                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 2291234567890');
+                    }
+                    const fullPhone = phoneToApprove.includes('@') ? phoneToApprove : phoneToApprove + '@s.whatsapp.net';
+                    const user = await grantAccess(fullPhone, 'Utilisateur');
+                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${phoneToApprove}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
+                    
+                    // Send confirmation to user
+                    await sock.sendMessage(fullPhone, { 
+                        text: `✅ *PAIEMENT CONFIRMÉ!*\n\n🎉 Ton accès est activé!\n⏰ Valide pour 24h\n\nTape *DÉMARRER* pour commencer! 🚀` 
+                    });
+                    return;
+                }
+
+                // PENDING command
+                if (text === 'PENDING') {
+                    const pending = await getPendingPayments();
+                    if (pending.length === 0) {
+                        return sendMessage('✅ Aucun paiement en attente!');
+                    }
+                    let resp = `⏳ *PAIEMENTS EN ATTENTE* (${pending.length})\n\n`;
+                    pending.forEach((u, i) => {
+                        resp += `${i+1}. ${u.userId}\n   Nom: ${u.name || 'N/A'}\n\n`;
+                    });
+                    resp += '📝 Utilise: *APPROVE [numéro]*';
+                    return sendMessage(resp);
+                }
+
+                // INFO command (admin only)
+                if (text === 'INFO') {
+                    const totalUsers = await User.countDocuments();
+                    const approvedUsers = await User.countDocuments({ paymentStatus: 'approved' });
+                    const pendingUsers = await User.countDocuments({ paymentStatus: 'pending' });
+                    return sendMessage(`📊 *STATISTIQUES*\n\n👥 Total utilisateurs: ${totalUsers}\n✅ Approuvés: ${approvedUsers}\n⏳ En attente: ${pendingUsers}`);
+                }
+            }
+
+            // 1. Handle Global Commands
             if (text === 'CLASSEMENT') {
                 const topUsers = await User.find().sort({ total: -1 }).limit(5);
                 let resp = "🏆 *TOP 5 GÉNIES* 🏆\n\n";
@@ -104,16 +249,50 @@ async function startBot() {
                 return sendMessage(resp);
             }
 
-            if (text === 'QUIZ') {
-                await sendMessage('⏳ Génération du lien de paiement (500 CFA)...');
-                const paymentUrl = `https://payment.kkiapay.me/api/v1/pay?k=${process.env.KKIAPAY_PUBLIC_KEY}&a=500&s=CotoPrep&p=${from}`;
-                await sendMessage(`💳 *PAIEMENT - 500 CFA*\n\nClique ici: ${paymentUrl}\n\n_Une fois payé, le quiz démarre automatiquement!_`);
+            if (text === 'DÉMARRER') {
+                // Check if user already has active access
+                const hasAccess = await hasActiveAccess(from);
+                if (hasAccess) {
+                    userSessions[from] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
+                    const timeLeft = await getTimeRemaining(from);
+                    await sendMessage(`⏱️ *Tu as un accès actif!*\n\n⏰ Temps restant: ${timeLeft}\n\n🎓 *Choisis ta matière* (1-9):\n\n1. 🔢 MATHS\n2. 🧬 SVT\n3. ⚗️ PCT\n4. 🤔 PHILO\n5. 📖 FRANÇAIS\n6. 🌍 HIST-GEO\n7. 🇬🇧 ANGLAIS\n8. 🇪🇸 ESPAGNOL\n9. 🇩🇪 ALLEMAND`);
+                    return;
+                }
+
+                // User needs to pay
+                let user = await User.findOne({ userId: from });
+                if (!user) {
+                    user = new User({ userId: from, name: msg.pushName || "Étudiant", paymentStatus: 'pending' });
+                    await user.save();
+                }
+
+                await sendMessage(`💳 *PAIEMENT REQUIS - ${QUIZ_PRICE} CFA*\n\n📱 *Envoie un virement MTN MoMo à:*\n\n┌─────────────────────┐\n│ ${SISTER_MOMO}  │\n└─────────────────────┘\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 *IMPORTANT - À FAIRE ABSOLUMENT:*\n\nDans la description ou le message de ton virement, écris ton *NUMÉRO WHATSAPP* pour qu'on puisse identifier ton paiement.\n\n✍️ *Exemple:*\n"CotoPrep 2291234567890"\n\nOu même simplement:\n"2291234567890"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ *Après avoir payé:*\nEnvoie-moi une confirmation et j'activerai ton accès immédiatement!\n\n⏰ *Tu auras accès pendant 24h*\n💪 Tu pourras faire autant de quiz que tu veux!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🆘 *Besoin d'aide?* Tape *CONTACT*`);
                 return;
             }
 
+            if (text === 'AIDE') {
+                return sendMessage(`❓ *COMMENT ÇA MARCHE?*\n\n1️⃣ Tape *DÉMARRER*\n2️⃣ Paie 500 CFA à ${SISTER_MOMO}\n3️⃣ Écris ton numéro WhatsApp dans la description du virement\n4️⃣ Dis-moi que tu as payé\n5️⃣ J'active ton accès (24h)\n6️⃣ Commence à étudier! 📚\n\n💡 *Pendant 24h tu peux faire autant de quizz que tu veux!*\n\n📚 *9 matières disponibles:*\nMATHS • SVT • PCT • PHILO • FRANÇAIS • HIST-GEO • ANGLAIS • ESPAGNOL • ALLEMAND\n\n🏆 *Suivi de tes progrès* avec le *CLASSEMENT*\n\n*Autre question?* Tape *CONTACT*`);
+            }
+
+            if (text === 'CONTACT') {
+                return sendMessage(`📞 *BESOIN D'AIDE?*\n\nPour toute question ou problème:\n\n👤 *Admin* - Contact direct via WhatsApp\n⏱️ *Réponse rapide* - 24h/24\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n🤔 *Questions courantes:*\n\n❓ Je ne reçois pas de confirmation?\n→ Assure-toi d'avoir écrit ton numéro WhatsApp dans la description du virement!\n\n❓ Combien de temps dure l'accès?\n→ 24 heures après approbation\n\n❓ Combien de quiz je peux faire?\n→ ILLIMITÉ! ✨\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nPour d'autres questions, tape *AIDE* ou contacte directement l'admin! 😊`);
+            }
+
+            if (text === 'TEMPS') {
+                const timeLeft = await getTimeRemaining(from);
+                if (!timeLeft) {
+                    return sendMessage('⏰ *Ton accès a expiré.*\n\nTape *DÉMARRER* pour renouveler ton accès (500 CFA)');
+                }
+                return sendMessage(`⏱️ *TEMPS RESTANT*\n\n${timeLeft}\n\n💪 Continue à étudier! 📚`);
+            }
+
             if (text === 'TEST' || text === 'START') {
+                const hasAccess = await hasActiveAccess(from);
+                if (!hasAccess) {
+                    return sendMessage(`❌ *Accès expiré!*\n\nTape *DÉMARRER* pour renouveler (500 CFA)`);
+                }
                 userSessions[from] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
-                await sendMessage("🧪 *MODE TEST*\nChoisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND");
+                await sendMessage("🧪 *MODE TEST*\n\n🎓 *Choisis ta matière* (1-9):\n\n1. 🔢 MATHS\n2. 🧬 SVT\n3. ⚗️ PCT\n4. 🤔 PHILO\n5. 📖 FRANÇAIS\n6. 🌍 HIST-GEO\n7. 🇬🇧 ANGLAIS\n8. 🇪🇸 ESPAGNOL\n9. 🇩🇪 ALLEMAND");
                 return;
             }
 
@@ -145,7 +324,7 @@ async function startBot() {
                         session.currentQuestion = 0;
 
                         const q = session.questions[0];
-                        return sendMessage(`📚 *MATIÈRE: ${session.subject}*\n\n*Q1/${session.questions.length}*\n${q.question}\n\n${q.options.join('\n')}\n\n_Réponds par A, B ou C_`);
+                        return sendMessage(`📚 *MATIÈRE: ${session.subject}*\n\n*Q1/${session.questions.length}*\n\n${q.question}\n\n${q.options.map((opt, i) => `${String.fromCharCode(65+i)}. ${opt}`).join('\n')}\n\n_Réponds par A, B ou C_`);
                     } else { 
                         return sendMessage("❌ Choix invalide. Tape un chiffre de 1 à 9."); 
                     }
@@ -164,7 +343,7 @@ async function startBot() {
 
                     if (session.currentQuestion < session.questions.length) {
                         const nextQ = session.questions[session.currentQuestion];
-                        await sendMessage(`${feedback}\n\n------------------\n\n*Q${session.currentQuestion+1}/${session.questions.length}*\n${nextQ.question}\n\n${nextQ.options.join('\n')}`);
+                        await sendMessage(`${feedback}\n\n------------------\n\n*Q${session.currentQuestion+1}/${session.questions.length}*\n\n${nextQ.question}\n\n${nextQ.options.map((opt, i) => `${String.fromCharCode(65+i)}. ${opt}`).join('\n')}`);
                     } else {
                         // End of Quiz
                         let dbUser = await User.findOne({ userId: from });
@@ -173,7 +352,12 @@ async function startBot() {
                         dbUser.total += session.score;
                         await dbUser.save();
                         
-                        await sendMessage(`🎉 *QUIZ TERMINÉ !*\n\nScore: ${session.score}/${session.questions.length}\nTotal cumulé: ${dbUser.total} pts.\n\nTape *CLASSEMENT* pour voir le top 5 !`);
+                        const percentage = Math.round((session.score / session.questions.length) * 100);
+                        let emoji = '🌟';
+                        if (percentage < 60) emoji = '💪';
+                        else if (percentage < 80) emoji = '👍';
+                        
+                        await sendMessage(`🎉 *QUIZ TERMINÉ !*\n\n📊 Score: ${session.score}/${session.questions.length} (${percentage}%)\n💯 Total cumulé: ${dbUser.total} pts\n\n${emoji} ${percentage >= 80 ? 'Excellent travail!' : percentage >= 60 ? 'Pas mal!' : 'Continue tes efforts!'}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\nTape:\n📚 *DÉMARRER* - Nouveau quiz\n🏆 *CLASSEMENT* - Top 5\n📱 *CONTACT* - Questions`);
                         delete userSessions[from];
                     }
                 } else {
@@ -181,6 +365,10 @@ async function startBot() {
                 }
                 return;
             }
+
+            // Fallback: Unknown command
+            return sendMessage(`❌ Commande non reconnue.\n\n📋 *COMMANDES DISPONIBLES:*\n\n📚 *DÉMARRER* - Commencer un quiz\n🏆 *CLASSEMENT* - Top 5\n⏱️ *TEMPS* - Temps restant\n💡 *AIDE* - Questions fréquentes\n📞 *CONTACT* - Besoin d'aide?\n\n👉 Tape *DÉMARRER* pour commencer! 🚀`);
+
         } catch (error) { 
             console.error('❌ Error in message handler:', error); 
         }
@@ -202,37 +390,8 @@ app.get('/scan', (req, res) => {
     }
 });
 
-app.get('/test-payment/:phone', async (req, res) => {
-    const phone = req.params.phone; 
-    const activeSocket = global.whatsappSocket || sock;
-
-    if (activeSocket) {
-        try {
-            userSessions[phone] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
-            await activeSocket.sendMessage(phone, {
-                text: "✅ *Paiement Test Approuvé!* \n\nPrêt pour le quiz? Choisis ta matière (1-9):\n1. MATHS\n2. SVT\n3. PCT\n4. PHILO\n5. FRANCAIS\n6. HIST-GEO\n7. ANGLAIS\n8. ESPAGNOL\n9. ALLEMAND"
-            });
-            res.send(`🚀 Message sent to ${phone}! Check your WhatsApp.`);
-        } catch (err) {
-            res.status(500).send("Error sending message: " + err.message);
-        }
-    } else {
-        res.status(500).send("Bot is not connected.");
-    }
-});
-
 app.post('/webhook', async (req, res) => {
-    try {
-        const { transactionId } = req.body;
-        const response = await kkia.verify(transactionId);
-        if (response.status === 'SUCCESS') {
-            const phone = response.partnerId;
-            if (phone && global.whatsappSocket) {
-                userSessions[phone] = { subject: null, questions: [], currentQuestion: 0, score: 0 };
-                await global.whatsappSocket.sendMessage(phone, { text: "✅ *Paiement Confirmé!* \nChoisis ta matière (1-9)" });
-            }
-        }
-    } catch (err) { console.error('❌ Webhook Error:', err); }
+    // Placeholder for future payment gateway integration if needed
     res.sendStatus(200);
 });
 
