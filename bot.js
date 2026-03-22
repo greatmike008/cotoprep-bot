@@ -63,13 +63,19 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// Admin registration schema
+const adminSchema = new mongoose.Schema({
+    whatsappId: { type: String, unique: true }, // The LID or phone format from WhatsApp
+    phoneNumber: { type: String, unique: true }, // The actual phone number
+    registeredAt: { type: Date, default: Date.now }
+});
+const Admin = mongoose.model('Admin', adminSchema);
+
 // --- 2. HELPER FUNCTIONS ---
-const isAdmin = (userId) => {
-    // Extract just the phone number from userId (remove @s.whatsapp.net)
-    const phoneFromId = userId.split('@')[0];
-    const normalizedId = normalizeBenin(phoneFromId);
-    const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
-    return normalizedId === normalizedAdmin;
+const isAdmin = async (userId) => {
+    // Check if this WhatsApp ID is registered as admin
+    const adminUser = await Admin.findOne({ whatsappId: userId });
+    return !!adminUser;
 };
 
 const hasActiveAccess = async (userId) => {
@@ -221,8 +227,34 @@ async function startBot() {
                 return;
             }
 
+            // REGISTER_ADMIN command (everyone can use, but only works for the first registration)
+            if (text.startsWith('REGISTER_ADMIN ')) {
+                const phoneToRegister = text.split(' ')[1];
+                if (!phoneToRegister) {
+                    return sendMessage('❌ Format: REGISTER_ADMIN [numéro_whatsapp]\nExemple: REGISTER_ADMIN 0141356526');
+                }
+                const normalizedPhone = normalizeBenin(phoneToRegister);
+                
+                try {
+                    // Check if already registered
+                    const existingAdmin = await Admin.findOne({ whatsappId: from });
+                    if (existingAdmin) {
+                        return sendMessage(`⚠️ Tu es déjà enregistré comme admin!\n\nTon numéro: ${existingAdmin.phoneNumber}`);
+                    }
+                    
+                    // Register new admin
+                    const newAdmin = new Admin({ whatsappId: from, phoneNumber: normalizedPhone });
+                    await newAdmin.save();
+                    return sendMessage(`✅ *ADMIN ENREGISTRÉ!*\n\n🔐 Numéro: ${normalizedPhone}\n\nTu peux maintenant utiliser:\n• *APPROVE* [numéro]\n• *PENDING* - Voir les paiements en attente\n• *INFO* - Statistiques`);
+                } catch (err) {
+                    console.error('Admin registration error:', err);
+                    return sendMessage('❌ Erreur lors de l\'enregistrement. Numéro déjà utilisé?');
+                }
+            }
+
             // --- ADMIN COMMANDS ---
-            if (isAdmin(from)) {
+            const isAdminUser = await isAdmin(from);
+            if (isAdminUser) {
                 // APPROVE command
                 if (text.startsWith('APPROVE ')) {
                     const phoneToApprove = text.split(' ')[1];
