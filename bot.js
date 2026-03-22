@@ -19,9 +19,27 @@ app.qrCodeImage = null;
 let sock = null;
 
 // --- ADMIN CONFIG ---
-const ADMIN_NUMBER = '2290141356536'; // Your WhatsApp admin number
+const ADMIN_NUMBER = '2290141356526'; // Your WhatsApp admin number
 const SISTER_MOMO = '+2290150396598'; // Sister's MTN MoMo number
 const QUIZ_PRICE = 500; // CFA
+
+// --- PHONE NUMBER NORMALIZATION ---
+const normalizeBenin = (phone) => {
+    // Remove all non-digits
+    let cleaned = phone.replace(/\D/g, '');
+    
+    // If starts with 0 (local format), convert to international
+    if (cleaned.startsWith('0')) {
+        cleaned = '229' + cleaned.substring(1);
+    }
+    
+    // If doesn't start with 229, assume it's international and add 229
+    if (!cleaned.startsWith('229')) {
+        cleaned = '229' + cleaned;
+    }
+    
+    return cleaned;
+};
 
 // --- 1. DATABASE CONNECTION ---
 const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
@@ -47,7 +65,11 @@ const User = mongoose.model('User', userSchema);
 
 // --- 2. HELPER FUNCTIONS ---
 const isAdmin = (userId) => {
-    return userId.includes(ADMIN_NUMBER);
+    // Extract just the phone number from userId (remove @s.whatsapp.net)
+    const phoneFromId = userId.split('@')[0];
+    const normalizedId = normalizeBenin(phoneFromId);
+    const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
+    return normalizedId === normalizedAdmin;
 };
 
 const hasActiveAccess = async (userId) => {
@@ -205,11 +227,12 @@ async function startBot() {
                 if (text.startsWith('APPROVE ')) {
                     const phoneToApprove = text.split(' ')[1];
                     if (!phoneToApprove) {
-                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 2291234567890');
+                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 0141356536\nOu: APPROVE 2290141356536');
                     }
-                    const fullPhone = phoneToApprove.includes('@') ? phoneToApprove : phoneToApprove + '@s.whatsapp.net';
+                    const normalizedPhone = normalizeBenin(phoneToApprove);
+                    const fullPhone = normalizedPhone + '@s.whatsapp.net';
                     const user = await grantAccess(fullPhone, 'Utilisateur');
-                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${phoneToApprove}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
+                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${normalizedPhone}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
                     
                     // Send confirmation to user
                     await sock.sendMessage(fullPhone, { 
@@ -238,6 +261,14 @@ async function startBot() {
                     const approvedUsers = await User.countDocuments({ paymentStatus: 'approved' });
                     const pendingUsers = await User.countDocuments({ paymentStatus: 'pending' });
                     return sendMessage(`📊 *STATISTIQUES*\n\n👥 Total utilisateurs: ${totalUsers}\n✅ Approuvés: ${approvedUsers}\n⏳ En attente: ${pendingUsers}`);
+                }
+
+                // TEST_ADMIN command (for debugging admin status)
+                if (text === 'TEST_ADMIN') {
+                    const phoneFromId = from.split('@')[0];
+                    const normalizedId = normalizeBenin(phoneFromId);
+                    const normalizedAdmin = normalizeBenin(ADMIN_NUMBER);
+                    return sendMessage(`🔍 *TEST ADMIN*\n\nTon ID: ${from}\nNuméro extrait: ${phoneFromId}\nNormalisé: ${normalizedId}\n\nAdmin config: ${ADMIN_NUMBER}\nNormalisé: ${normalizedAdmin}\n\n${normalizedId === normalizedAdmin ? '✅ TU ES ADMIN!' : '❌ Pas admin'}`);
                 }
             }
 
