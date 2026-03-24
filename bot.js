@@ -19,12 +19,12 @@ app.qrCodeImage = null;
 let sock = null;
 
 // --- ADMIN CONFIG ---
-const ADMIN_NUMBER = '2290141356526'; // Your WhatsApp admin number
-const SISTER_MOMO = '+2290150396598'; // Sister's MTN MoMo number
+const ADMIN_NUMBER = '2290141356526'; // admin number
+const SISTER_MOMO = '+2290150396598'; // MTN MoMo number
 const QUIZ_PRICE = 500; // CFA
 
 // --- PHONE NUMBER NORMALIZATION ---
-// Simple: just remove non-digits, accept as-is (works globally)
+
 const cleanPhone = (phone) => {
     return phone.replace(/\D/g, '');  // Remove all non-digits only
 };
