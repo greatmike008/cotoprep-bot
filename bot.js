@@ -19,15 +19,9 @@ app.qrCodeImage = null;
 let sock = null;
 
 // --- ADMIN CONFIG ---
-const ADMIN_NUMBER = '2290141356526'; // admin number
-const SISTER_MOMO = '+2290150396598'; // MTN MoMo number
+const ADMIN_NUMBER = '2290141356526'; // Your WhatsApp admin number
+const SISTER_MOMO = '+2290150396598'; // Sister's MTN MoMo number
 const QUIZ_PRICE = 500; // CFA
-
-// --- PHONE NUMBER NORMALIZATION ---
-
-const cleanPhone = (phone) => {
-    return phone.replace(/\D/g, '');  // Remove all non-digits only
-};
 
 // --- 1. DATABASE CONNECTION ---
 const mongoURI = "mongodb+srv://mastergee_db:Mikky%401044@cotoprepdb.cfxxhpa.mongodb.net/?appName=CotoPrepDB";
@@ -44,10 +38,11 @@ mongoose.connect(mongoURI)
 const userSchema = new mongoose.Schema({
     userId: { type: String, unique: true },
     name: String,
+    nameConfirmed: { type: Boolean, default: false }, // Has user confirmed their payment name?
     total: { type: Number, default: 0 },
     giftClaimed: { type: Boolean, default: false },
-    paidUntil: { type: Date, default: null }, // Timestamp when access expires
-    paymentStatus: { type: String, enum: ['pending', 'approved', 'expired'], default: 'pending' } // pending, approved, expired
+    paidUntil: { type: Date, default: null },
+    paymentStatus: { type: String, enum: ['pending', 'approved', 'expired'], default: 'pending' }
 });
 const User = mongoose.model('User', userSchema);
 
@@ -67,41 +62,32 @@ const isAdmin = async (userId) => {
 };
 
 const hasActiveAccess = async (userId) => {
-    // Extract just the phone number from userId (remove @s.whatsapp.net or @lid)
-    const phoneFromId = userId.split('@')[0];
-    
-    // Look for ANY user record that matches this phone number
-    const user = await User.findOne({
-        $or: [
-            { userId: userId },  // Exact match
-            { userId: { $regex: phoneFromId } }  // Contains the phone number
-        ]
-    });
+    // userId comes in as [number]@lid or [number]@s.whatsapp.net format from Baileys
+    // Just find the exact user
+    const user = await User.findOne({ userId });
     
     if (!user) return false;
     if (!user.paidUntil) return false;
     return new Date() < new Date(user.paidUntil);
 };
 
-const grantAccess = async (userId, name) => {
-    // Extract phone number to search by pattern
-    const phoneFromId = userId.split('@')[0];
+const grantAccess = async (lidNumber) => {
+    // LID format: user gives us just the number (e.g., 198350716575759)
+    // We need to find the user with userId: [number]@lid
     
-    // Look for ANY user record matching this phone number
-    let user = await User.findOne({
-        $or: [
-            { userId: userId },
-            { userId: { $regex: phoneFromId } }
-        ]
-    });
+    const fullLid = lidNumber + '@lid';
     
-    // If still no user found, create new one with the provided userId
+    // Find user with exact LID
+    let user = await User.findOne({ userId: fullLid });
+    
+    // If not found, create new one
     if (!user) {
-        user = new User({ userId, name });
+        user = new User({ userId: fullLid, name: 'Utilisateur' });
     }
     
+    // Grant 24h access
     const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     user.paidUntil = tomorrow;
     user.paymentStatus = 'approved';
     await user.save();
@@ -113,16 +99,7 @@ const getPendingPayments = async () => {
 };
 
 const getTimeRemaining = async (userId) => {
-    // Extract just the phone number from userId
-    const phoneFromId = userId.split('@')[0];
-    
-    // Look for ANY user record that matches this phone number
-    const user = await User.findOne({
-        $or: [
-            { userId: userId },
-            { userId: { $regex: phoneFromId } }
-        ]
-    });
+    const user = await User.findOne({ userId });
     
     if (!user || !user.paidUntil) return null;
     const now = new Date();
@@ -131,62 +108,6 @@ const getTimeRemaining = async (userId) => {
     const hours = Math.floor(remaining / (1000 * 60 * 60));
     const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
     return `${hours}h ${minutes}m`;
-};
-
-const sendWelcomeMessage = async (sendMessage) => {
-    const welcomeMsg = `
-🎓 *BIENVENUE SUR COTOPREP!* 🎓
-
-Salut! 👋 Je suis ton assistant d'études pour l'examen BAAC.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 *COMMENT ÇA MARCHE?*
-
-1️⃣ Tape *DÉMARRER* pour commencer
-2️⃣ Paie 500 CFA à ${SISTER_MOMO}
-3️⃣ Écris ton numéro WhatsApp dans le message de virement
-4️⃣ Envoie-moi la confirmation
-5️⃣ J'active ton accès (24h)
-6️⃣ Étudie sans limites! 📚
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📋 *MES COMMANDES:*
-
-📚 *DÉMARRER* - Accéder aux quiz
-🏆 *CLASSEMENT* - Top 5 des meilleurs étudiants
-⏱️ *TEMPS* - Voir ton temps restant
-💡 *AIDE* - Questions fréquentes
-📱 *CONTACT* - Besoin d'aide? (Admin)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎓 *LES MATIÈRES:*
-1. 🔢 MATHS
-2. 🧬 SVT
-3. ⚗️ PCT
-4. 🤔 PHILO
-5. 📖 FRANÇAIS
-6. 🌍 HIST-GEO
-7. 🇬🇧 ANGLAIS
-8. 🇪🇸 ESPAGNOL
-9. 🇩🇪 ALLEMAND
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✨ *AVANTAGES:*
-✅ 25 questions par quiz
-✅ Réponses expliquées
-✅ Suivi de tes progrès
-✅ Accès 24h illimité
-✅ 500 CFA seulement!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-👉 *Prêt?* Tape *DÉMARRER* pour commencer! 🚀
-    `;
-    await sendMessage(welcomeMsg);
 };
 
 let userSessions = {};
@@ -238,59 +159,81 @@ async function startBot() {
             
             const sendMessage = async (text) => { await sock.sendMessage(from, { text }); };
 
-            // Check if user is new - send welcome message
+            // Check if user is new or needs name confirmation
             const existingUser = await User.findOne({ userId: from });
+            
+            // NEW USER - Ask for name
             if (!existingUser) {
-                const newUser = new User({ userId: from, name: msg.pushName || "Étudiant", paymentStatus: 'pending' });
+                const newUser = new User({ 
+                    userId: from, 
+                    name: null,
+                    nameConfirmed: false,
+                    paymentStatus: 'pending' 
+                });
                 await newUser.save();
-                await sendWelcomeMessage(sendMessage);
-                return;
+                return sendMessage(`👋 *BIENVENUE SUR COTOPREP!*\n\n📝 Avant de commencer, quel est ton *NOM COMPLET*?\n\nC'est important car tu devras écrire EXACTEMENT ce nom dans la description de ton virement!\n\nExemple: Si tu réponds "Ahmed Mohamed", tu devras écrire "Ahmed Mohamed" dans le message de paiement.`);
+            }
+            
+            // USER EXISTS BUT NAME NOT CONFIRMED - Save their response as name
+            if (!existingUser.nameConfirmed) {
+                existingUser.name = messageText.trim(); // Save their exact response
+                existingUser.nameConfirmed = true;
+                await existingUser.save();
+                return sendMessage(`✅ *Parfait!*\n\n📌 Ton nom de paiement: *${existingUser.name}*\n\nAssure-toi d'écrire *EXACTEMENT* ceci dans la description du virement:\n"${existingUser.name}"\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n🎓 *BIENVENUE SUR COTOPREP!* 🎓\n\nSalut! 👋 Je suis ton assistant d'études pour l'examen BAAC.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🎯 *COMMENT ÇA MARCHE?*\n\n1️⃣ Tape *DÉMARRER* pour commencer\n2️⃣ Paie 500 CFA à ${SISTER_MOMO}\n3️⃣ Écris "${existingUser.name}" dans le message de virement\n4️⃣ Envoie-moi la confirmation\n5️⃣ J'active ton accès (24h)\n6️⃣ Étudie sans limites! 📚\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📋 *MES COMMANDES:*\n\n📚 *DÉMARRER* - Accéder aux quiz\n🏆 *CLASSEMENT* - Top 5 des meilleurs étudiants\n⏱️ *TEMPS* - Voir ton temps restant\n💡 *AIDE* - Questions fréquentes\n📱 *CONTACT* - Besoin d'aide? (Admin)\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👉 *Prêt?* Tape *DÉMARRER* pour commencer! 🚀`);
             }
 
-            // REGISTER_ADMIN command (everyone can use, but only works for the first registration)
+            // REGISTER_ADMIN command - admin registers their own LID
             if (text.startsWith('REGISTER_ADMIN ')) {
-                const phoneToRegister = text.split(' ')[1];
-                if (!phoneToRegister) {
-                    return sendMessage('❌ Format: REGISTER_ADMIN [numéro_whatsapp]\nExemple: REGISTER_ADMIN 2290141356526\nOu tout autre numéro international');
+                const lidNumber = text.split(' ')[1];
+                if (!lidNumber) {
+                    return sendMessage('❌ Format: REGISTER_ADMIN [LID_number]\nExemple: REGISTER_ADMIN 198350716575759\n\nUse your LID number (the one shown in chat info)');
                 }
-                const cleanedPhone = cleanPhone(phoneToRegister);
                 
                 try {
                     // Check if already registered
                     const existingAdmin = await Admin.findOne({ whatsappId: from });
                     if (existingAdmin) {
-                        return sendMessage(`⚠️ Tu es déjà enregistré comme admin!\n\nTon numéro: ${existingAdmin.phoneNumber}`);
+                        return sendMessage(`⚠️ Tu es déjà enregistré comme admin!\n\nTon LID: ${existingAdmin.phoneNumber}`);
                     }
                     
                     // Register new admin
-                    const newAdmin = new Admin({ whatsappId: from, phoneNumber: cleanedPhone });
+                    const newAdmin = new Admin({ whatsappId: from, phoneNumber: lidNumber });
                     await newAdmin.save();
-                    return sendMessage(`✅ *ADMIN ENREGISTRÉ!*\n\n🔐 Numéro: ${cleanedPhone}\n\nTu peux maintenant utiliser:\n• *APPROVE* [numéro]\n• *PENDING* - Voir les paiements en attente\n• *INFO* - Statistiques`);
+                    return sendMessage(`✅ *ADMIN ENREGISTRÉ!*\n\n🔐 Ton LID: ${lidNumber}\n\nTu peux maintenant utiliser:\n• *APPROVE* [LID_number]\n• *PENDING* - Voir les paiements en attente\n• *INFO* - Statistiques`);
                 } catch (err) {
                     console.error('Admin registration error:', err);
-                    return sendMessage('❌ Erreur lors de l\'enregistrement. Numéro déjà utilisé?');
+                    return sendMessage('❌ Erreur lors de l\'enregistrement. LID déjà utilisé?');
                 }
             }
 
             // --- ADMIN COMMANDS ---
             const isAdminUser = await isAdmin(from);
             if (isAdminUser) {
-                // APPROVE command
+                // APPROVE command (using LID format)
                 if (text.startsWith('APPROVE ')) {
-                    const phoneToApprove = text.split(' ')[1];
-                    if (!phoneToApprove) {
-                        return sendMessage('❌ Format: APPROVE [numéro_whatsapp]\nExemple: APPROVE 2290141356526\nOu tout autre numéro international');
+                    const lidNumber = text.split(' ')[1];
+                    if (!lidNumber) {
+                        return sendMessage('❌ Format: APPROVE [LID_number]\n\nTape *PENDING* pour voir les LID des utilisateurs en attente\nExemple: APPROVE 198350716575759');
                     }
-                    const cleanedPhone = cleanPhone(phoneToApprove);
-                    const fullPhone = cleanedPhone + '@s.whatsapp.net';
-                    const user = await grantAccess(fullPhone, 'Utilisateur');
-                    await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 ${cleanedPhone}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
                     
-                    // Send confirmation to user
-                    await sock.sendMessage(fullPhone, { 
-                        text: `✅ *PAIEMENT CONFIRMÉ!*\n\n🎉 Ton accès est activé!\n⏰ Valide pour 24h\n\nTape *DÉMARRER* pour commencer! 🚀` 
-                    });
-                    return;
+                    try {
+                        const user = await grantAccess(lidNumber);
+                        await sendMessage(`✅ *Accès APPROUVÉ!*\n\n📱 LID: ${lidNumber}\n⏰ Valide 24h jusqu'à demain\n\nLe message de confirmation a été envoyé à l'utilisateur.`);
+                        
+                        // Send confirmation to user
+                        const fullLid = lidNumber + '@lid';
+                        try {
+                            await sock.sendMessage(fullLid, { 
+                                text: `✅ *PAIEMENT CONFIRMÉ!*\n\n🎉 Ton accès est activé!\n⏰ Valide pour 24h\n\nTape *DÉMARRER* pour commencer! 🚀` 
+                            });
+                        } catch (err) {
+                            console.log('Could not send confirmation to user, but approval is done');
+                        }
+                        return;
+                    } catch (err) {
+                        console.error('APPROVE error:', err);
+                        return sendMessage('❌ Erreur lors de l\'approbation. Vérifie le LID!');
+                    }
                 }
 
                 // PENDING command
@@ -301,9 +244,11 @@ async function startBot() {
                     }
                     let resp = `⏳ *PAIEMENTS EN ATTENTE* (${pending.length})\n\n`;
                     pending.forEach((u, i) => {
-                        resp += `${i+1}. ${u.userId}\n   Nom: ${u.name || 'N/A'}\n\n`;
+                        // Extract just the number from the LID
+                        const lidNumber = u.userId.split('@')[0];
+                        resp += `${i+1}. 📝 Nom: *${u.name || 'N/A'}*\n   🆔 LID: ${lidNumber}\n\n`;
                     });
-                    resp += '📝 Utilise: *APPROVE [numéro]*';
+                    resp += '━━━━━━━━━━━━━━━━━━━━━━\n📝 Utilise: *APPROVE [LID_number]*\nExemple: APPROVE 198350716575759';
                     return sendMessage(resp);
                 }
 
@@ -336,23 +281,20 @@ async function startBot() {
                     return;
                 }
 
-                // User needs to pay
-                let user = await User.findOne({ userId: from });
-                if (!user) {
-                    user = new User({ userId: from, name: msg.pushName || "Étudiant", paymentStatus: 'pending' });
-                    await user.save();
-                }
+                // User needs to pay - get their confirmed name
+                const user = await User.findOne({ userId: from });
+                const paymentName = user && user.nameConfirmed ? user.name : 'TON NOM';
 
-                await sendMessage(`💳 *PAIEMENT REQUIS - ${QUIZ_PRICE} CFA*\n\n📱 *Envoie un virement MTN MoMo à:*\n\n┌─────────────────────┐\n│ ${SISTER_MOMO}  │\n└─────────────────────┘\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 *IMPORTANT - À FAIRE ABSOLUMENT:*\n\nDans la description ou le message de ton virement, écris ton *NUMÉRO WHATSAPP* pour qu'on puisse identifier ton paiement.\n\n✍️ *Exemple:*\n"CotoPrep 2291234567890"\n\nOu même simplement:\n"2291234567890"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ *Après avoir payé:*\nEnvoie-moi une confirmation et j'activerai ton accès immédiatement!\n\n⏰ *Tu auras accès pendant 24h*\n💪 Tu pourras faire autant de quiz que tu veux!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🆘 *Besoin d'aide?* Tape *CONTACT*`);
+                await sendMessage(`💳 *PAIEMENT REQUIS - ${QUIZ_PRICE} CFA*\n\n📱 *Envoie un virement MTN MoMo à:*\n\n┌─────────────────────┐\n│ ${SISTER_MOMO}  │\n└─────────────────────┘\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 *IMPORTANT - À FAIRE ABSOLUMENT:*\n\nDans la description ou le message de ton virement, écris *EXACTEMENT*:\n\n"${paymentName}"\n\n⚠️ Doit être EXACT, sinon on ne pourra pas t'identifier!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✅ *Après avoir payé:*\nEnvoie-moi une confirmation et j'activerai ton accès immédiatement!\n\n⏰ *Tu auras accès pendant 24h*\n💪 Tu pourras faire autant de quiz que tu veux!\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🆘 *Besoin d'aide?* Tape *CONTACT*`);
                 return;
             }
 
             if (text === 'AIDE') {
-                return sendMessage(`❓ *COMMENT ÇA MARCHE?*\n\n1️⃣ Tape *DÉMARRER*\n2️⃣ Paie 500 CFA à ${SISTER_MOMO}\n3️⃣ Écris ton numéro WhatsApp dans la description du virement\n4️⃣ Dis-moi que tu as payé\n5️⃣ J'active ton accès (24h)\n6️⃣ Commence à étudier! 📚\n\n💡 *Pendant 24h tu peux faire autant de quizz que tu veux!*\n\n📚 *9 matières disponibles:*\nMATHS • SVT • PCT • PHILO • FRANÇAIS • HIST-GEO • ANGLAIS • ESPAGNOL • ALLEMAND\n\n🏆 *Suivi de tes progrès* avec le *CLASSEMENT*\n\n*Autre question?* Tape *CONTACT*`);
+                return sendMessage(`❓ *COMMENT ÇA MARCHE?*\n\n1️⃣ Tape *DÉMARRER*\n2️⃣ Paie 500 CFA à ${SISTER_MOMO}\n3️⃣ Écris ton NOM CONFIRMÉ dans la description du virement\n4️⃣ Dis-moi que tu as payé\n5️⃣ J'active ton accès (24h)\n6️⃣ Commence à étudier! 📚\n\n💡 *Pendant 24h tu peux faire autant de quizz que tu veux!*\n\n📚 *9 matières disponibles:*\nMATHS • SVT • PCT • PHILO • FRANÇAIS • HIST-GEO • ANGLAIS • ESPAGNOL • ALLEMAND\n\n🏆 *Suivi de tes progrès* avec le *CLASSEMENT*\n\n*Autre question?* Tape *CONTACT*`);
             }
 
             if (text === 'CONTACT') {
-                return sendMessage(`📞 *BESOIN D'AIDE?*\n\nPour toute question ou problème:\n\n👤 *Admin* - Contact direct via WhatsApp\n⏱️ *Réponse rapide* - 24h/24\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n🤔 *Questions courantes:*\n\n❓ Je ne reçois pas de confirmation?\n→ Assure-toi d'avoir écrit ton numéro WhatsApp dans la description du virement!\n\n❓ Combien de temps dure l'accès?\n→ 24 heures après approbation\n\n❓ Combien de quiz je peux faire?\n→ ILLIMITÉ! ✨\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nPour d'autres questions, tape *AIDE* ou contacte directement l'admin! 😊`);
+                return sendMessage(`📞 *BESOIN D'AIDE?*\n\nPour toute question ou problème:\n\n👤 *Admin* - Contact direct via WhatsApp\n⏱️ *Réponse rapide* - 24h/24\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n🤔 *Questions courantes:*\n\n❓ Je ne reçois pas de confirmation?\n→ Assure-toi d'avoir écrit TON NOM EXACT dans la description du virement!\n\n❓ Combien de temps dure l'accès?\n→ 24 heures après approbation\n\n❓ Combien de quiz je peux faire?\n→ ILLIMITÉ! ✨\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nPour d'autres questions, tape *AIDE* ou contacte directement l'admin! 😊`);
             }
 
             if (text === 'TEMPS') {
@@ -422,14 +364,8 @@ async function startBot() {
                         const nextQ = session.questions[session.currentQuestion];
                         await sendMessage(`${feedback}\n\n------------------\n\n*Q${session.currentQuestion+1}/${session.questions.length}*\n\n${nextQ.question}\n\n${nextQ.options.map((opt, i) => `${String.fromCharCode(65+i)}. ${opt}`).join('\n')}`);
                     } else {
-                        // End of Quiz - find user by phone number pattern
-                        const phoneFromId = from.split('@')[0];
-                        let dbUser = await User.findOne({
-                            $or: [
-                                { userId: from },
-                                { userId: { $regex: phoneFromId } }
-                            ]
-                        });
+                        // End of Quiz - find user by exact ID
+                        let dbUser = await User.findOne({ userId: from });
                         if (!dbUser) { dbUser = new User({ userId: from, name: msg.pushName || "Étudiant" }); }
                         
                         dbUser.total += session.score;
